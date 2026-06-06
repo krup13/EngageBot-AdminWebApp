@@ -87,3 +87,49 @@ export interface StudentCSVRow {
   status: "valid" | "invalid";
   errorReason?: string;
 }
+
+// ── Reports ─────────────────────────────────────────────────────────────────
+
+export type EngagementLevel = "high" | "medium" | "low" | "absent";
+
+export interface StudentEngagement {
+  studentId: string;
+  studentName: string;
+  engagementLevel: EngagementLevel;
+  focusScore: number;          // 0–100
+  distractedCount: number;
+  participationScore: number;  // 0–100
+}
+
+export interface DroidObservation {
+  timestamp: string;           // "HH:MM"
+  note: string;
+  type: "engagement" | "distraction" | "participation" | "general";
+}
+
+export interface SessionReport {
+  id: string;
+  date: string;                // "YYYY-MM-DD"
+  subject: string;
+  classGroup: string;
+  teacherName: string;
+  droidId: string;
+  startTime: string;
+  endTime: string;
+  overallEngagement: EngagementLevel;
+  avgFocusScore: number;
+  studentEngagements: StudentEngagement[];
+  droidObservations: DroidObservation[];
+  status: "completed" | "in_progress";
+}
+
+export interface MonthlyReportSummary {
+  month: number;
+  year: number;
+  classGroup: string;
+  totalSessions: number;
+  completedSessions: number;
+  avgEngagement: number;
+  subjectBreakdown: Array<{ subject: string; avgEngagement: number; sessionCount: number }>;
+  sessionReports: SessionReport[];
+}

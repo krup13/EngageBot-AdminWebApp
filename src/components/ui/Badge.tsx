@@ -34,6 +34,7 @@ export function StatusBadge({ status }: { status: string }) {
     pending: { label: "Pending", variant: "warning" },
     verified: { label: "Verified", variant: "success" },
     error: { label: "Error", variant: "error" },
+    in_progress: { label: "In Progress", variant: "info" },
   };
   const config = map[status.toLowerCase()] ?? { label: status, variant: "neutral" as const };
   return <Badge label={config.label} variant={config.variant} />;

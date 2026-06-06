@@ -53,3 +53,43 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #9CA3AF;
 }
+
+/* ── Print styles ─────────────────────────────────────────────────────────── */
+
+@media print {
+  aside,
+  header,
+  .print-hide {
+    display: none !important;
+  }
+
+  body,
+  html {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .flex.h-screen {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  main {
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  .print-session-card {
+    break-after: page;
+    break-inside: avoid;
+    page-break-after: always;
+    page-break-inside: avoid;
+  }
+
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
