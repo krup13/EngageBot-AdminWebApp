@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "@/lib/firebase";
-import { getBypassUser } from "@/lib/auth";
+import { ensureUserProfile } from "@/lib/api/users";
 import type { AdminUser } from "@/lib/types";
 
 const DEV_BYPASS = process.env.NEXT_PUBLIC_DEV_BYPASS === "true";
@@ -21,20 +21,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (DEV_BYPASS) {
-      setUser(getBypassUser());
+      // Always inject the dev user — no storage lookup needed, avoids cross-tab redirect loops
+      setUser({
+        uid: "dev-bypass-uid",
+        email: "khairanafisa4@gmail.com",
+        displayName: "Khaira Nafisa",
+        photoURL: null,
+        role: "super_admin",
+      });
       setLoading(false);
       return;
     }
 
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        setUser({
+        // Load (or create) the /users/{uid} profile so role comes from Firestore.
+        const profile = await ensureUserProfile({
           uid: firebaseUser.uid,
           email: firebaseUser.email ?? "",
           displayName: firebaseUser.displayName,
           photoURL: firebaseUser.photoURL,
-          role: "super_admin",
+          role: "admin",
         });
+        setUser(profile);
       } else {
         setUser(null);
       }

@@ -1,11 +1,13 @@
 // Core entity types — will map to Firestore collections once Firebase DB is integrated
 
+// Maps to the /users/{authUid} document. Keyed by Firebase Auth UID.
 export interface AdminUser {
   uid: string;
   email: string;
   displayName: string | null;
   photoURL: string | null;
-  role: "super_admin" | "admin";
+  role: "super_admin" | "admin" | "teacher";
+  teacherId?: string; // set only for teacher accounts, links to /teachers/{id}
 }
 
 export interface Teacher {
@@ -17,6 +19,10 @@ export interface Teacher {
   dateAdded: string; // ISO date string
   status: "active" | "pending" | "inactive";
   employeeId: string; // e.g. EB-2024-042
+  // Null until the teacher first signs into the mobile app with a matching
+  // email; the mobile app links their Firebase Auth UID here. Login is gated
+  // on a teacher record existing — see FIREBASE_SETUP.md.
+  authUid?: string | null;
 }
 
 export type CreateTeacherInput = Omit<Teacher, "id" | "employeeId" | "dateAdded" | "status">;

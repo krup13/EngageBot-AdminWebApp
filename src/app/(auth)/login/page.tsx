@@ -88,7 +88,7 @@ export default function LoginPage() {
           <div className="flex gap-4">
             <button className="hover:text-text transition-colors">Security Policy</button>
             <button className="hover:text-text transition-colors">Privacy Notice</button>
-            <button className="hover:text-text transition-colors">MOE Guidelines</button>
+            <button className="hover:text-text transition-colors">Usage Guidelines</button>
           </div>
         </footer>
       </div>

@@ -13,14 +13,14 @@ interface TabToggleProps {
 
 export function TabToggle({ tabs, active, onChange }: TabToggleProps) {
   return (
-    <div className="inline-flex items-center bg-gray-100 rounded-lg p-1 gap-1">
+    <div className="inline-flex items-center bg-subtle rounded-lg p-1 gap-1">
       {tabs.map((tab) => (
         <button
           key={tab.value}
           onClick={() => onChange(tab.value)}
           className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all cursor-pointer ${
             active === tab.value
-              ? "bg-white text-text shadow-sm"
+              ? "bg-surface text-text shadow-sm"
               : "text-muted hover:text-text"
           }`}
         >

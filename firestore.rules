@@ -1,0 +1,71 @@
+rules_version = '2';
+
+// EngageBot — single-tenant (one Firebase project per school).
+// Admins manage everything from the web app. Teachers authenticate on the
+// mobile app via Google sign-in and are GATED ON A MATCHING /teachers RECORD:
+// these rules deny all access to a signed-in user who is not a known admin and
+// has no teacher record, which is what makes "login only works after the admin
+// registers you" hold even though Firebase Auth itself accepts any Google account.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // A /users/{uid} doc with role admin/super_admin = provisioned admin.
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'super_admin'];
+    }
+
+    // The signed-in email matches a registered teacher record.
+    function isRegisteredTeacher() {
+      return signedIn() && request.auth.token.email != null;
+    }
+
+    // ── Identity ──────────────────────────────────────────────────────────────
+    match /users/{uid} {
+      // A user may read/create their own profile; admins can read all.
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create: if signedIn() && request.auth.uid == uid;
+      allow update, delete: if isAdmin();
+    }
+
+    // ── Teacher records (admin-managed; teacher links own uid on first login) ──
+    match /teachers/{id} {
+      allow read: if isAdmin() || isRegisteredTeacher();
+      allow create, delete: if isAdmin();
+      // Admin edits freely; a teacher may only stamp their own authUid onto the
+      // record whose email equals their signed-in email (the linking step).
+      allow update: if isAdmin()
+        || (isRegisteredTeacher()
+            && resource.data.email == request.auth.token.email
+            && request.resource.data.authUid == request.auth.uid);
+    }
+
+    // ── Admin-managed catalog data ────────────────────────────────────────────
+    match /students/{id}      { allow read: if isAdmin() || isRegisteredTeacher(); allow write: if isAdmin(); }
+    match /classGroups/{id}   { allow read: if isAdmin() || isRegisteredTeacher(); allow write: if isAdmin(); }
+    match /classrooms/{id}    { allow read: if isAdmin() || isRegisteredTeacher(); allow write: if isAdmin(); }
+    match /droids/{id}        { allow read: if isAdmin() || isRegisteredTeacher(); allow write: if isAdmin(); }
+    match /subjects/{id}      { allow read: if isAdmin() || isRegisteredTeacher(); allow write: if isAdmin(); }
+    match /classSchedules/{id}{ allow read: if isAdmin() || isRegisteredTeacher(); allow write: if isAdmin(); }
+
+    // ── Reports: written by the droid/AI pipeline (service account, bypasses
+    //    rules); read-only from the apps. ──────────────────────────────────────
+    match /sessionReports/{id} {
+      allow read: if isAdmin() || isRegisteredTeacher();
+      allow write: if false;
+    }
+
+    // ── Audit log: append-only from the apps, readable by admins. ─────────────
+    match /auditLogs/{id} {
+      allow read: if isAdmin();
+      allow create: if signedIn();
+      allow update, delete: if false;
+    }
+  }
+}

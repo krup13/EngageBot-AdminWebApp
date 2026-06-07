@@ -4,6 +4,7 @@ import type {
   StudentEngagement,
   DroidObservation,
 } from "@/lib/types";
+import { isFirebaseConfigured, readWhere, where } from "@/lib/firestore";
 
 // ── Mock data ─────────────────────────────────────────────────────────────────
 
@@ -224,15 +225,37 @@ const MOCK_SESSION_REPORTS: SessionReport[] = [
 
 // ── Query functions ───────────────────────────────────────────────────────────
 
-export function getSessionReports(date: string): SessionReport[] {
-  return MOCK_SESSION_REPORTS.filter((r) => r.date === date);
+// SessionReport documents are written by the droid + AI pipeline (separate
+// codebase); the admin app only reads them. Stored in the "sessionReports"
+// collection, keyed by an ISO "date" field ("YYYY-MM-DD").
+
+export async function getSessionReports(date: string): Promise<SessionReport[]> {
+  if (!isFirebaseConfigured()) {
+    return MOCK_SESSION_REPORTS.filter((r) => r.date === date);
+  }
+  return readWhere<SessionReport>("sessionReports", where("date", "==", date));
 }
 
-export function getMonthlyReport(month: number, year: number): MonthlyReportSummary {
-  const sessions = MOCK_SESSION_REPORTS.filter((r) => {
-    const d = new Date(r.date);
-    return d.getMonth() + 1 === month && d.getFullYear() === year;
-  });
+export async function getMonthlyReport(
+  month: number,
+  year: number
+): Promise<MonthlyReportSummary> {
+  let sessions: SessionReport[];
+
+  if (!isFirebaseConfigured()) {
+    sessions = MOCK_SESSION_REPORTS.filter((r) => {
+      const d = new Date(r.date);
+      return d.getMonth() + 1 === month && d.getFullYear() === year;
+    });
+  } else {
+    // "YYYY-MM-DD" strings sort lexicographically, so a string range selects the month.
+    const prefix = `${year}-${String(month).padStart(2, "0")}`;
+    sessions = await readWhere<SessionReport>(
+      "sessionReports",
+      where("date", ">=", `${prefix}-01`),
+      where("date", "<=", `${prefix}-31`)
+    );
+  }
 
   const totalSessions = sessions.length;
   const completedSessions = sessions.filter((s) => s.status === "completed").length;

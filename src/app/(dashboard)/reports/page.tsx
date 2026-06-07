@@ -14,7 +14,13 @@ import { TabToggle } from "@/components/ui/TabToggle";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { getSessionReports, getMonthlyReport } from "@/lib/api/reports";
-import type { SessionReport, StudentEngagement, DroidObservation, EngagementLevel } from "@/lib/types";
+import type {
+  SessionReport,
+  MonthlyReportSummary,
+  StudentEngagement,
+  DroidObservation,
+  EngagementLevel,
+} from "@/lib/types";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -142,13 +148,34 @@ export default function ReportsPage() {
   }, [printingSession]);
 
   // ── Daily data ──────────────────────────────────────────────────────────────
-  const dailySessions = getSessionReports(selectedDate).filter(
+  const [dailyAll, setDailyAll] = useState<SessionReport[]>([]);
+  useEffect(() => {
+    let active = true;
+    getSessionReports(selectedDate).then((r) => {
+      if (active) setDailyAll(r);
+    });
+    return () => {
+      active = false;
+    };
+  }, [selectedDate]);
+
+  const dailySessions = dailyAll.filter(
     (s) => classFilter === "all" || s.classGroup === classFilter
   );
 
   // ── Monthly data ────────────────────────────────────────────────────────────
-  const monthlyData = getMonthlyReport(selectedMonth, selectedYear);
-  const filteredMonthly = monthlyData.sessionReports.filter(
+  const [monthlyData, setMonthlyData] = useState<MonthlyReportSummary | null>(null);
+  useEffect(() => {
+    let active = true;
+    getMonthlyReport(selectedMonth, selectedYear).then((r) => {
+      if (active) setMonthlyData(r);
+    });
+    return () => {
+      active = false;
+    };
+  }, [selectedMonth, selectedYear]);
+
+  const filteredMonthly = (monthlyData?.sessionReports ?? []).filter(
     (s) => classFilter === "all" || s.classGroup === classFilter
   );
 

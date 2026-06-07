@@ -54,6 +54,28 @@ body {
   background: #9CA3AF;
 }
 
+/* ── Dark mode ───────────────────────────────────────────────────────────── */
+
+html[data-theme="dark"] {
+  --color-background:    #191D14;
+  --color-surface:       #232819;
+  --color-text:          #E9EDE5;
+  --color-muted:         #8A9488;
+  --color-border:        #353D2A;
+  --color-subtle:        #1E221A;
+  --color-primary-light: #263320;
+  --color-error-bg:      #3C1A0E;
+  --color-error-border:  #6B3218;
+  --color-warning-bg:    #3A2505;
+  --color-warning-border:#6B4A0E;
+  --color-success-bg:    #0A2A14;
+}
+
+html[data-theme="dark"] body {
+  background: var(--color-background);
+  color: var(--color-text);
+}
+
 /* ── Print styles ─────────────────────────────────────────────────────────── */
 
 @media print {

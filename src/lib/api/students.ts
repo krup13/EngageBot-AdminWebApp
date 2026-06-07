@@ -1,4 +1,7 @@
 import { Student, CreateStudentInput } from "@/lib/types";
+import { isFirebaseConfigured, readAll, create, nextSequence } from "@/lib/firestore";
+
+const COLLECTION = "students";
 
 export const MOCK_STUDENTS: Student[] = [
   { id: "1", studentId: "STU-00001", name: "Ahmad bin Zulkifli", icNumber: "120512101234", classGroup: "4 Gemilang", source: "manual", status: "verified" },
@@ -11,17 +14,29 @@ export const MOCK_STUDENTS: Student[] = [
 ];
 
 export async function getStudents(): Promise<Student[]> {
-  return MOCK_STUDENTS;
+  if (!isFirebaseConfigured()) return MOCK_STUDENTS;
+  return readAll<Student>(COLLECTION);
 }
 
 export async function registerStudent(data: CreateStudentInput): Promise<Student> {
-  const newStudent: Student = {
+  if (!isFirebaseConfigured()) {
+    const newStudent: Student = {
+      ...data,
+      id: String(Date.now()),
+      studentId: `STU-${String(MOCK_STUDENTS.length + 1).padStart(5, "0")}`,
+      source: "manual",
+      status: "pending",
+    };
+    MOCK_STUDENTS.push(newStudent);
+    return newStudent;
+  }
+
+  const seq = await nextSequence(COLLECTION);
+  const fields: Omit<Student, "id"> = {
     ...data,
-    id: String(Date.now()),
-    studentId: `STU-${String(MOCK_STUDENTS.length + 1).padStart(5, "0")}`,
+    studentId: `STU-${String(seq).padStart(5, "0")}`,
     source: "manual",
     status: "pending",
   };
-  MOCK_STUDENTS.push(newStudent);
-  return newStudent;
+  return create<Student>(COLLECTION, fields);
 }

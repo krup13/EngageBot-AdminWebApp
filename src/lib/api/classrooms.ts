@@ -1,4 +1,7 @@
 import { ClassGroup, CreateClassGroupInput } from "@/lib/types";
+import { isFirebaseConfigured, readAll, create } from "@/lib/firestore";
+
+const COLLECTION = "classGroups";
 
 export const MOCK_CLASSROOMS: ClassGroup[] = [
   { id: "1", name: "4 Bestari", academicYear: 2026, room: "Block A - Room 101", droidId: "DRD-001" },
@@ -13,14 +16,19 @@ export const MOCK_CLASSROOMS: ClassGroup[] = [
 ];
 
 export async function getClassrooms(): Promise<ClassGroup[]> {
-  return MOCK_CLASSROOMS;
+  if (!isFirebaseConfigured()) return MOCK_CLASSROOMS;
+  return readAll<ClassGroup>(COLLECTION);
 }
 
 export async function registerClassGroup(data: CreateClassGroupInput): Promise<ClassGroup> {
-  const newGroup: ClassGroup = {
-    ...data,
-    id: String(Date.now()),
-  };
-  MOCK_CLASSROOMS.push(newGroup);
-  return newGroup;
+  if (!isFirebaseConfigured()) {
+    const newGroup: ClassGroup = {
+      ...data,
+      id: String(Date.now()),
+    };
+    MOCK_CLASSROOMS.push(newGroup);
+    return newGroup;
+  }
+
+  return create<ClassGroup>(COLLECTION, data);
 }

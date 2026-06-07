@@ -1,4 +1,7 @@
 import { ClassSession, CreateClassSessionInput, SessionDay } from "@/lib/types";
+import { isFirebaseConfigured, readAll, create } from "@/lib/firestore";
+
+const COLLECTION = "classSchedules";
 
 export const SESSION_COLORS: Record<string, string> = {
   Mathematics: "#DBEAFE",
@@ -27,16 +30,26 @@ export const MOCK_SESSIONS: ClassSession[] = [
 export const DAYS: SessionDay[] = ["monday", "tuesday", "wednesday", "thursday", "friday"];
 
 export async function getSessions(): Promise<ClassSession[]> {
-  return MOCK_SESSIONS;
+  if (!isFirebaseConfigured()) return MOCK_SESSIONS;
+  return readAll<ClassSession>(COLLECTION);
 }
 
 export async function createSession(data: CreateClassSessionInput): Promise<ClassSession> {
-  const newSession: ClassSession = {
+  if (!isFirebaseConfigured()) {
+    const newSession: ClassSession = {
+      ...data,
+      id: String(Date.now()),
+      status: "scheduled",
+      color: SESSION_COLORS[data.subject] ?? "#F3F4F6",
+    };
+    MOCK_SESSIONS.push(newSession);
+    return newSession;
+  }
+
+  const fields: Omit<ClassSession, "id"> = {
     ...data,
-    id: String(Date.now()),
     status: "scheduled",
     color: SESSION_COLORS[data.subject] ?? "#F3F4F6",
   };
-  MOCK_SESSIONS.push(newSession);
-  return newSession;
+  return create<ClassSession>(COLLECTION, fields);
 }

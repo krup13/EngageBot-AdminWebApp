@@ -11,7 +11,6 @@ const ALLOWED_DOMAINS = (
 ).split(",").map((d) => d.trim());
 
 const DEV_BYPASS = process.env.NEXT_PUBLIC_DEV_BYPASS === "true";
-const BYPASS_KEY = "engagebot-dev-user";
 
 export function isDomainAllowed(email: string): boolean {
   const domain = email.split("@")[1];
@@ -26,38 +25,23 @@ function clearSessionCookie() {
   document.cookie = "engagebot-session=; path=/; max-age=0";
 }
 
-export function getBypassUser(): AdminUser | null {
-  if (!DEV_BYPASS || typeof window === "undefined") return null;
-  try {
-    const raw = sessionStorage.getItem(BYPASS_KEY);
-    return raw ? (JSON.parse(raw) as AdminUser) : null;
-  } catch {
-    return null;
-  }
-}
-
 export async function signInWithGoogle(): Promise<{
   user: AdminUser | null;
   error: string | null;
 }> {
   if (DEV_BYPASS) {
-    const mockUser: AdminUser = {
-      uid: "dev-bypass-uid",
-      email: "khairanafisa4@gmail.com",
-      displayName: "Khaira Nafisa",
-      photoURL: null,
-      role: "super_admin",
-    };
-    if (!isDomainAllowed(mockUser.email)) {
-      const domains = ALLOWED_DOMAINS.join(" or @");
-      return {
-        user: null,
-        error: `Access restricted to @${domains} accounts.`,
-      };
-    }
-    sessionStorage.setItem(BYPASS_KEY, JSON.stringify(mockUser));
+    // Skip Firebase — just set the session cookie so the proxy allows through
     setSessionCookie();
-    return { user: mockUser, error: null };
+    return {
+      user: {
+        uid: "dev-bypass-uid",
+        email: "khairanafisa4@gmail.com",
+        displayName: "Khaira Nafisa",
+        photoURL: null,
+        role: "super_admin",
+      },
+      error: null,
+    };
   }
 
   try {
@@ -98,7 +82,6 @@ export async function signInWithGoogle(): Promise<{
 
 export async function signOut(): Promise<void> {
   if (DEV_BYPASS) {
-    sessionStorage.removeItem(BYPASS_KEY);
     clearSessionCookie();
     return;
   }

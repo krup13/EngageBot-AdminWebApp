@@ -1,4 +1,7 @@
 import { Teacher, CreateTeacherInput } from "@/lib/types";
+import { isFirebaseConfigured, readAll, create, nextSequence } from "@/lib/firestore";
+
+const COLLECTION = "teachers";
 
 export const MOCK_TEACHERS: Teacher[] = [
   { id: "1", employeeId: "EB-2024-042", name: "Siti Aminah binti Yusof", email: "siti.aminah@moe.gov.my", department: "Science & Math", assignedClasses: ["4 Bestari", "5 Amanah"], dateAdded: "2024-01-12", status: "active" },
@@ -9,17 +12,31 @@ export const MOCK_TEACHERS: Teacher[] = [
 ];
 
 export async function getTeachers(): Promise<Teacher[]> {
-  return MOCK_TEACHERS;
+  if (!isFirebaseConfigured()) return MOCK_TEACHERS;
+  return readAll<Teacher>(COLLECTION);
 }
 
 export async function registerTeacher(data: CreateTeacherInput): Promise<Teacher> {
-  const newTeacher: Teacher = {
+  if (!isFirebaseConfigured()) {
+    const newTeacher: Teacher = {
+      ...data,
+      id: String(Date.now()),
+      employeeId: `EB-2026-${String(MOCK_TEACHERS.length + 1).padStart(3, "0")}`,
+      dateAdded: new Date().toISOString().split("T")[0],
+      status: "pending",
+      authUid: null,
+    };
+    MOCK_TEACHERS.push(newTeacher);
+    return newTeacher;
+  }
+
+  const seq = await nextSequence(COLLECTION);
+  const fields: Omit<Teacher, "id"> = {
     ...data,
-    id: String(Date.now()),
-    employeeId: `EB-2026-${String(MOCK_TEACHERS.length + 1).padStart(3, "0")}`,
+    employeeId: `EB-2026-${String(seq).padStart(3, "0")}`,
     dateAdded: new Date().toISOString().split("T")[0],
     status: "pending",
+    authUid: null, // linked when the teacher first signs into the mobile app
   };
-  MOCK_TEACHERS.push(newTeacher);
-  return newTeacher;
+  return create<Teacher>(COLLECTION, fields);
 }
