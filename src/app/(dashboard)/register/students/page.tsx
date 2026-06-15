@@ -1,21 +1,16 @@
 "use client";
 
 import { useState, useRef } from "react";
+import Papa from "papaparse";
 import { Trash2, Plus, CheckCircle2, AlertCircle, Upload, Download, FileText } from "lucide-react";
 import { TabToggle } from "@/components/ui/TabToggle";
 import { Button } from "@/components/ui/Button";
-import { Select } from "@/components/ui/Select";
 import { StatusBadge } from "@/components/ui/Badge";
-import { StudentCSVRow } from "@/lib/types";
+import { registerStudent } from "@/lib/api/students";
 import Link from "next/link";
 
 const CLASS_OPTIONS = [
-  { value: "4-gemilang", label: "4 Gemilang" },
-  { value: "4-bestari", label: "4 Bestari" },
-  { value: "5-amanah", label: "5 Amanah" },
-  { value: "5-zamrud", label: "5 Zamrud" },
-  { value: "3-cerdas", label: "3 Cerdas" },
-  { value: "6-gigih", label: "6 Gigih" },
+  "4 Gemilang", "4 Bestari", "5 Amanah", "5 Zamrud", "3 Cerdas", "6 Gigih",
 ];
 
 interface ManualRow {
@@ -26,27 +21,45 @@ interface ManualRow {
   icValid: boolean;
 }
 
-const MOCK_CSV_ROWS: StudentCSVRow[] = [
-  { name: "Ahmad Danish Bin Razak", icNumber: "080512-10-1233", classGroup: "4 Science 1", rowNumber: 1, status: "valid" },
-  { name: "Siti Nurhaliza Binti Abu", icNumber: "081120-14-5562", classGroup: "4 Arts 2", rowNumber: 2, status: "valid" },
-  { name: "Lim Wei Sheng", icNumber: "080205-01-9987", classGroup: "4 Science 1", rowNumber: 3, status: "invalid", errorReason: "Invalid Class" },
-];
+interface ParsedRow {
+  name: string;
+  ic: string;
+  classGroup: string;
+  valid: boolean;
+  error?: string;
+}
 
 function validateIC(ic: string) {
   return ic.replace(/\D/g, "").length === 12;
 }
 
+function triggerDownload(filename: string, contents: string) {
+  const blob = new Blob([contents], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function RegisterStudentsPage() {
   const [activeTab, setActiveTab] = useState("manual");
 
-  // Manual tab state
+  // Manual tab
   const [rows, setRows] = useState<ManualRow[]>([
     { id: "1", name: "", ic: "", classGroup: "", icValid: false },
   ]);
+  const [submitting, setSubmitting] = useState(false);
+  const [manualDone, setManualDone] = useState<number | null>(null);
+  const [manualError, setManualError] = useState<string | null>(null);
 
-  // CSV tab state
-  const [csvUploaded, setCsvUploaded] = useState(false);
+  // CSV tab
+  const [csvRows, setCsvRows] = useState<ParsedRow[] | null>(null);
+  const [csvFileName, setCsvFileName] = useState("");
   const [dragOver, setDragOver] = useState(false);
+  const [csvSubmitting, setCsvSubmitting] = useState(false);
+  const [csvDone, setCsvDone] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const MAX_ROWS = 50;
@@ -55,11 +68,9 @@ export default function RegisterStudentsPage() {
     if (rows.length >= MAX_ROWS) return;
     setRows((prev) => [...prev, { id: String(Date.now()), name: "", ic: "", classGroup: "", icValid: false }]);
   }
-
   function removeRow(id: string) {
     setRows((prev) => prev.filter((r) => r.id !== id));
   }
-
   function updateRow(id: string, field: keyof ManualRow, value: string) {
     setRows((prev) =>
       prev.map((r) => {
@@ -70,14 +81,76 @@ export default function RegisterStudentsPage() {
       })
     );
   }
-
   function clearAll() {
+    setRows([{ id: "1", name: "", ic: "", classGroup: "", icValid: false }]);
+    setManualDone(null);
+    setManualError(null);
+  }
+
+  async function handleManualSubmit() {
+    setManualError(null);
+    const valid = rows.filter((r) => r.name.trim() && r.icValid && r.classGroup);
+    if (valid.length === 0) {
+      setManualError("Add at least one row with a name, a 12-digit IC, and a class group.");
+      return;
+    }
+    setSubmitting(true);
+    for (const r of valid) {
+      await registerStudent({ name: r.name.trim(), icNumber: r.ic.trim(), classGroup: r.classGroup });
+    }
+    setSubmitting(false);
+    setManualDone(valid.length);
     setRows([{ id: "1", name: "", ic: "", classGroup: "", icValid: false }]);
   }
 
-  function handleFileChange() {
-    setCsvUploaded(true);
+  function downloadTemplate() {
+    const csv = Papa.unparse({
+      fields: ["Full Name", "IC Number", "Class Group"],
+      data: [
+        ["Ahmad Danish Bin Razak", "080512101233", "4 Gemilang"],
+        ["Siti Nurhaliza Binti Abu", "081120145562", "4 Bestari"],
+      ],
+    });
+    triggerDownload("engagebot_student_template.csv", csv);
   }
+
+  function parseFile(file: File) {
+    setCsvFileName(file.name);
+    setCsvDone(null);
+    Papa.parse<Record<string, string>>(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (res) => {
+        const parsed: ParsedRow[] = res.data.map((row) => {
+          const name = (row["Full Name"] ?? row["name"] ?? "").trim();
+          const ic = (row["IC Number"] ?? row["ic"] ?? "").trim();
+          const classGroup = (row["Class Group"] ?? row["classGroup"] ?? "").trim();
+          let error: string | undefined;
+          if (!name) error = "Missing name";
+          else if (!validateIC(ic)) error = "Invalid IC";
+          else if (!classGroup) error = "Missing class";
+          return { name, ic, classGroup, valid: !error, error };
+        });
+        setCsvRows(parsed);
+      },
+    });
+  }
+
+  async function handleCsvSubmit() {
+    if (!csvRows) return;
+    const valid = csvRows.filter((r) => r.valid);
+    setCsvSubmitting(true);
+    for (const r of valid) {
+      await registerStudent({ name: r.name, icNumber: r.ic, classGroup: r.classGroup });
+    }
+    setCsvSubmitting(false);
+    setCsvDone(valid.length);
+    setCsvRows(null);
+    setCsvFileName("");
+  }
+
+  const validCount = csvRows?.filter((r) => r.valid).length ?? 0;
+  const invalidCount = csvRows ? csvRows.length - validCount : 0;
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
@@ -98,7 +171,7 @@ export default function RegisterStudentsPage() {
 
       {/* Manual Entry */}
       {activeTab === "manual" && (
-        <div className="bg-white rounded-2xl border border-border">
+        <div className="bg-surface rounded-2xl border border-border">
           <div className="flex items-center justify-between px-5 pt-5 pb-3">
             <div>
               <h3 className="text-sm font-semibold text-text">Manual Entry</h3>
@@ -106,11 +179,24 @@ export default function RegisterStudentsPage() {
             </div>
             <div className="flex items-center gap-3">
               <span className="text-xs text-muted">{rows.length} / {MAX_ROWS} Students</span>
-              <button onClick={clearAll} className="text-xs text-error hover:underline">
-                Clear All
-              </button>
+              <button onClick={clearAll} className="text-xs text-error hover:underline">Clear All</button>
             </div>
           </div>
+
+          {manualDone !== null && (
+            <div className="mx-5 mb-2 flex items-center justify-between gap-3 rounded-lg border border-success/30 bg-success-bg px-4 py-3">
+              <p className="text-sm text-success">
+                <CheckCircle2 size={15} className="inline mr-1.5 -mt-0.5" />
+                Registered {manualDone} student{manualDone === 1 ? "" : "s"} to the database.
+              </p>
+              <Link href="/students" className="text-xs font-semibold text-success underline">View Students</Link>
+            </div>
+          )}
+          {manualError && (
+            <div className="mx-5 mb-2 rounded-lg border border-error-border bg-error-bg px-4 py-3 text-sm text-error">
+              {manualError}
+            </div>
+          )}
 
           <table className="w-full text-sm">
             <thead>
@@ -132,7 +218,7 @@ export default function RegisterStudentsPage() {
                       placeholder="Full name"
                       value={row.name}
                       onChange={(e) => updateRow(row.id, "name", e.target.value)}
-                      className="w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                      className="w-full rounded-lg border border-border px-3 py-2 text-sm bg-surface outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                     />
                   </td>
                   <td className="px-4 py-2.5">
@@ -142,14 +228,13 @@ export default function RegisterStudentsPage() {
                         placeholder="12-digit IC number"
                         value={row.ic}
                         onChange={(e) => updateRow(row.id, "ic", e.target.value)}
-                        className="w-full rounded-lg border border-border px-3 py-2 pr-8 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                        className="w-full rounded-lg border border-border px-3 py-2 pr-8 text-sm bg-surface outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                       />
                       {row.ic && (
                         <span className="absolute right-2.5 top-1/2 -translate-y-1/2">
                           {row.icValid
                             ? <CheckCircle2 size={15} className="text-success" />
-                            : <AlertCircle size={15} className="text-error" />
-                          }
+                            : <AlertCircle size={15} className="text-error" />}
                         </span>
                       )}
                     </div>
@@ -158,11 +243,11 @@ export default function RegisterStudentsPage() {
                     <select
                       value={row.classGroup}
                       onChange={(e) => updateRow(row.id, "classGroup", e.target.value)}
-                      className="w-full rounded-lg border border-border px-3 py-2 text-sm bg-white outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                      className="w-full rounded-lg border border-border px-3 py-2 text-sm bg-surface outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                     >
                       <option value="">Select class…</option>
-                      {CLASS_OPTIONS.map((o) => (
-                        <option key={o.value} value={o.value}>{o.label}</option>
+                      {CLASS_OPTIONS.map((c) => (
+                        <option key={c} value={c}>{c}</option>
                       ))}
                     </select>
                   </td>
@@ -185,8 +270,8 @@ export default function RegisterStudentsPage() {
               <Plus size={15} />
               Add Row
             </Button>
-            <Button>
-              Proceed to Review →
+            <Button onClick={handleManualSubmit} loading={submitting}>
+              Register Students →
             </Button>
           </div>
         </div>
@@ -195,21 +280,28 @@ export default function RegisterStudentsPage() {
       {/* CSV Upload */}
       {activeTab === "csv" && (
         <div className="flex flex-col gap-5">
+          {csvDone !== null && (
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-success/30 bg-success-bg px-4 py-3">
+              <p className="text-sm text-success">
+                <CheckCircle2 size={15} className="inline mr-1.5 -mt-0.5" />
+                Imported {csvDone} student{csvDone === 1 ? "" : "s"} to the database.
+              </p>
+              <Link href="/students" className="text-xs font-semibold text-success underline">View Students</Link>
+            </div>
+          )}
+
           {/* Template download */}
-          <div className="bg-white rounded-xl border border-border p-4 flex items-center justify-between">
+          <div className="bg-surface rounded-xl border border-border p-4 flex items-center justify-between">
             <div className="flex items-start gap-3">
               <FileText size={20} className="text-primary mt-0.5 shrink-0" />
               <div>
                 <p className="text-sm font-semibold text-text">Download Official Template</p>
                 <p className="text-xs text-muted mt-0.5">
-                  Ensure your data matches our system requirements for a smooth import process.
-                </p>
-                <p className="text-xs text-primary mt-1">
-                  Constraints: Max 5.0 MB file size • Up to 500 rows per upload.
+                  Columns: Full Name, IC Number, Class Group. Fill it in and upload below.
                 </p>
               </div>
             </div>
-            <Button variant="secondary" size="sm">
+            <Button variant="secondary" size="sm" onClick={downloadTemplate}>
               <Download size={14} />
               Download CSV Template
             </Button>
@@ -219,25 +311,29 @@ export default function RegisterStudentsPage() {
           <div
             onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
-            onDrop={(e) => { e.preventDefault(); setDragOver(false); setCsvUploaded(true); }}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              if (e.dataTransfer.files[0]) parseFile(e.dataTransfer.files[0]);
+            }}
             className={`rounded-xl border-2 border-dashed p-12 flex flex-col items-center gap-4 text-center transition-colors
-              ${dragOver ? "border-primary bg-primary-light" : "border-border bg-white hover:border-primary/50"}`}
+              ${dragOver ? "border-primary bg-primary-light" : "border-border bg-surface hover:border-primary/50"}`}
           >
             <div className="w-12 h-12 rounded-full bg-primary-light flex items-center justify-center">
               <Upload size={22} className="text-primary" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-text">Drop CSV file here or click to upload</p>
-              <p className="text-xs text-muted mt-1">
-                Your file will be parsed automatically. We support .csv and .xlsx formats following the official template structure.
+              <p className="text-sm font-semibold text-text">
+                {csvFileName || "Drop CSV file here or click to upload"}
               </p>
+              <p className="text-xs text-muted mt-1">Your file is parsed in the browser. .csv format following the template.</p>
             </div>
             <input
               ref={fileInputRef}
               type="file"
-              accept=".csv,.xlsx"
+              accept=".csv"
               className="hidden"
-              onChange={handleFileChange}
+              onChange={(e) => { if (e.target.files?.[0]) parseFile(e.target.files[0]); }}
             />
             <Button variant="primary" size="sm" onClick={() => fileInputRef.current?.click()}>
               Choose File
@@ -245,48 +341,47 @@ export default function RegisterStudentsPage() {
           </div>
 
           {/* Parse results */}
-          {csvUploaded && (
+          {csvRows && (
             <>
               <div className="grid grid-cols-3 gap-4">
-                <div className="bg-white rounded-xl border border-border p-4 text-center">
+                <div className="bg-surface rounded-xl border border-border p-4 text-center">
                   <p className="text-xs font-medium text-muted uppercase tracking-wide mb-1">Parsed Rows</p>
-                  <p className="text-2xl font-bold text-text">450</p>
+                  <p className="text-2xl font-bold text-text">{csvRows.length}</p>
                 </div>
-                <div className="bg-white rounded-xl border border-success-bg p-4 text-center">
+                <div className="bg-surface rounded-xl border border-success-bg p-4 text-center">
                   <p className="text-xs font-medium text-success uppercase tracking-wide mb-1">Valid Rows</p>
-                  <p className="text-2xl font-bold text-success">442</p>
+                  <p className="text-2xl font-bold text-success">{validCount}</p>
                 </div>
                 <div className="bg-error-bg rounded-xl border border-error-border p-4 text-center">
                   <p className="text-xs font-medium text-error uppercase tracking-wide mb-1">Rows with Errors</p>
-                  <p className="text-2xl font-bold text-error">8</p>
+                  <p className="text-2xl font-bold text-error">{invalidCount}</p>
                 </div>
               </div>
 
               {/* Preview */}
-              <div className="bg-white rounded-xl border border-border">
+              <div className="bg-surface rounded-xl border border-border">
                 <div className="px-5 pt-4 pb-2">
-                  <h4 className="text-sm font-semibold text-text">Parsing Preview (First 3 Rows)</h4>
+                  <h4 className="text-sm font-semibold text-text">Parsing Preview (first 5 rows)</h4>
                 </div>
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-t border-border">
                       <th className="text-left text-xs font-medium text-muted px-5 py-2.5">Full Name</th>
-                      <th className="text-left text-xs font-medium text-muted px-4 py-2.5">Student IC Number</th>
+                      <th className="text-left text-xs font-medium text-muted px-4 py-2.5">IC Number</th>
                       <th className="text-left text-xs font-medium text-muted px-4 py-2.5">Class Group</th>
                       <th className="text-left text-xs font-medium text-muted px-4 py-2.5">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {MOCK_CSV_ROWS.map((row) => (
-                      <tr key={row.rowNumber} className={row.status === "invalid" ? "bg-error-bg/30" : ""}>
-                        <td className="px-5 py-2.5">{row.name}</td>
-                        <td className="px-4 py-2.5 font-mono text-xs">{row.icNumber}</td>
+                    {csvRows.slice(0, 5).map((row, i) => (
+                      <tr key={i} className={!row.valid ? "bg-error-bg/30" : ""}>
+                        <td className="px-5 py-2.5">{row.name || <span className="text-muted italic">—</span>}</td>
+                        <td className="px-4 py-2.5 font-mono text-xs">{row.ic}</td>
                         <td className="px-4 py-2.5">{row.classGroup}</td>
                         <td className="px-4 py-2.5">
-                          {row.status === "valid"
+                          {row.valid
                             ? <StatusBadge status="verified" />
-                            : <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-error-bg text-error border border-error-border">{row.errorReason}</span>
-                          }
+                            : <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-error-bg text-error border border-error-border">{row.error}</span>}
                         </td>
                       </tr>
                     ))}
@@ -296,20 +391,14 @@ export default function RegisterStudentsPage() {
 
               <div className="bg-subtle rounded-xl border border-border p-4 flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-text">Ready to Proceed?</p>
+                  <p className="text-sm font-semibold text-text">Ready to import?</p>
                   <p className="text-xs text-muted mt-0.5">
-                    442 valid records identified. 8 rows require manual correction in the review step.
+                    {validCount} valid record{validCount === 1 ? "" : "s"} will be registered. {invalidCount} skipped.
                   </p>
                 </div>
-                <div className="flex gap-3">
-                  <Button variant="outline" size="sm">
-                    <Download size={14} />
-                    Download Errors CSV
-                  </Button>
-                  <Button>
-                    Proceed to Review →
-                  </Button>
-                </div>
+                <Button onClick={handleCsvSubmit} loading={csvSubmitting} disabled={validCount === 0}>
+                  Import {validCount} Student{validCount === 1 ? "" : "s"} →
+                </Button>
               </div>
             </>
           )}

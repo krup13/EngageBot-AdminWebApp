@@ -33,6 +33,13 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# firebase admin service-account key (secret — never commit)
+serviceAccountKey.json
+*-firebase-adminsdk-*.json
+
+# real seed data (contains student PII — never commit)
+/data/
+
 # vercel
 .vercel
 

@@ -1,8 +1,18 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Building2, Plus } from "lucide-react";
-import { MOCK_CLASSROOMS } from "@/lib/api/classrooms";
+import { getClassrooms } from "@/lib/api/classrooms";
+import type { ClassGroup } from "@/lib/types";
 
 export default function ClassroomsPage() {
+  const [classrooms, setClassrooms] = useState<ClassGroup[]>([]);
+
+  useEffect(() => {
+    getClassrooms().then(setClassrooms);
+  }, []);
+
   return (
     <div className="p-6">
       <div className="flex items-start justify-between mb-6">
@@ -20,8 +30,8 @@ export default function ClassroomsPage() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {MOCK_CLASSROOMS.map((room) => (
-          <div key={room.id} className="bg-white rounded-xl border border-border p-5 hover:shadow-sm transition-shadow">
+        {classrooms.map((room) => (
+          <div key={room.id} className="bg-surface rounded-xl border border-border p-5 hover:shadow-sm transition-shadow">
             <div className="flex items-start justify-between mb-3">
               <div className="w-10 h-10 rounded-lg bg-primary-light flex items-center justify-center">
                 <Building2 size={20} className="text-primary" />

@@ -1,5 +1,5 @@
 import { Student, CreateStudentInput } from "@/lib/types";
-import { isFirebaseConfigured, readAll, create, nextSequence } from "@/lib/firestore";
+import { isFirebaseConfigured, readAll, create, update, nextSequence } from "@/lib/firestore";
 
 const COLLECTION = "students";
 
@@ -39,4 +39,15 @@ export async function registerStudent(data: CreateStudentInput): Promise<Student
     status: "pending",
   };
   return create<Student>(COLLECTION, fields);
+}
+
+export type UpdateStudentInput = Partial<Pick<Student, "name" | "icNumber" | "classGroup" | "status">>;
+
+export async function updateStudent(id: string, patch: UpdateStudentInput): Promise<void> {
+  if (!isFirebaseConfigured()) {
+    const s = MOCK_STUDENTS.find((x) => x.id === id);
+    if (s) Object.assign(s, patch);
+    return;
+  }
+  await update<Student>(COLLECTION, id, patch);
 }

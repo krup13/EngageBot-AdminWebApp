@@ -1,5 +1,6 @@
 import { Clock, Filter } from "lucide-react";
 import { StatusBadge } from "@/components/ui/Badge";
+import { DailyTimetableModal } from "@/components/dashboard/DailyTimetableModal";
 import { ClassSession } from "@/lib/types";
 
 interface TeachingSessionsTableProps {
@@ -8,7 +9,7 @@ interface TeachingSessionsTableProps {
 
 export function TeachingSessionsTable({ sessions }: TeachingSessionsTableProps) {
   return (
-    <div className="bg-white rounded-xl border border-border">
+    <div className="bg-surface rounded-xl border border-border">
       <div className="flex items-center justify-between px-5 pt-5 pb-3">
         <div>
           <h3 className="text-sm font-semibold text-text">Today&#39;s Teaching Sessions</h3>
@@ -59,9 +60,7 @@ export function TeachingSessionsTable({ sessions }: TeachingSessionsTableProps) 
       </table>
 
       <div className="border-t border-border px-5 py-3 text-center">
-        <button className="text-xs text-primary hover:underline font-medium">
-          View Full Daily Timetable
-        </button>
+        <DailyTimetableModal />
       </div>
     </div>
   );

@@ -231,7 +231,7 @@ export default function ReportsPage() {
   }
 
   const selectClass =
-    "h-9 px-3 text-sm border border-border rounded-lg bg-white text-text focus:outline-none focus:ring-1 focus:ring-primary";
+    "h-9 px-3 text-sm border border-border rounded-lg bg-surface text-text focus:outline-none focus:ring-1 focus:ring-primary";
 
   return (
     <div className="p-6 flex flex-col gap-6 max-w-screen-xl">
@@ -245,7 +245,7 @@ export default function ReportsPage() {
         </div>
         <button
           onClick={() => window.print()}
-          className="print-hide flex items-center gap-2 px-4 py-2 text-sm font-medium text-muted border border-border rounded-lg bg-white hover:bg-subtle transition-colors"
+          className="print-hide flex items-center gap-2 px-4 py-2 text-sm font-medium text-muted border border-border rounded-lg bg-surface hover:bg-subtle transition-colors"
         >
           <Printer size={16} />
           {activeTab === "daily" ? "Print All Sessions" : "Print Monthly Report"}
@@ -290,7 +290,7 @@ export default function ReportsPage() {
               type="number"
               value={selectedYear}
               onChange={(e) => setSelectedYear(Number(e.target.value))}
-              className="h-9 w-24 px-3 text-sm border border-border rounded-lg bg-white text-text focus:outline-none focus:ring-1 focus:ring-primary"
+              className="h-9 w-24 px-3 text-sm border border-border rounded-lg bg-surface text-text focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
         )}
@@ -328,7 +328,7 @@ export default function ReportsPage() {
                 <div
                   key={session.id}
                   data-session-id={session.id}
-                  className={`print-session-card bg-white rounded-xl border border-border overflow-hidden${isHidden ? " print:hidden" : ""}`}
+                  className={`print-session-card bg-surface rounded-xl border border-border overflow-hidden${isHidden ? " print:hidden" : ""}`}
                 >
                   {/* Card header */}
                   <div className="px-5 py-4 flex items-start justify-between gap-4 flex-wrap">
@@ -361,7 +361,7 @@ export default function ReportsPage() {
                         className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
                           sectionOpen === "students"
                             ? "bg-primary-light border-primary/30 text-primary"
-                            : "bg-white border-border text-muted hover:bg-subtle"
+                            : "bg-surface border-border text-muted hover:bg-subtle"
                         }`}
                       >
                         <Users size={13} />
@@ -376,7 +376,7 @@ export default function ReportsPage() {
                         className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
                           sectionOpen === "droid"
                             ? "bg-primary-light border-primary/30 text-primary"
-                            : "bg-white border-border text-muted hover:bg-subtle"
+                            : "bg-surface border-border text-muted hover:bg-subtle"
                         }`}
                       >
                         <Cpu size={13} />
@@ -441,7 +441,7 @@ export default function ReportsPage() {
           </div>
 
           {/* Subject engagement breakdown bar chart */}
-          <div className="bg-white rounded-xl border border-border p-5">
+          <div className="bg-surface rounded-xl border border-border p-5">
             <h3 className="text-sm font-semibold text-text mb-4">
               Subject Engagement Breakdown
             </h3>
@@ -452,7 +452,7 @@ export default function ReportsPage() {
                 {subjectBreakdown.map(({ subject, avgEngagement, sessionCount }) => (
                   <div key={subject} className="flex items-center gap-3">
                     <span className="text-xs text-muted w-32 shrink-0 text-right">{subject}</span>
-                    <div className="flex-1 bg-gray-100 rounded-full h-5 overflow-hidden">
+                    <div className="flex-1 bg-subtle rounded-full h-5 overflow-hidden">
                       <div
                         className="h-full rounded-full bg-primary transition-all"
                         style={{ width: `${avgEngagement}%` }}
@@ -471,7 +471,7 @@ export default function ReportsPage() {
           </div>
 
           {/* Session log table */}
-          <div className="bg-white rounded-xl border border-border overflow-hidden">
+          <div className="bg-surface rounded-xl border border-border overflow-hidden">
             <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
               <h3 className="text-sm font-semibold text-text">Session Log</h3>
               <span className="text-xs text-muted">{filteredMonthly.length} sessions</span>
@@ -514,7 +514,7 @@ export default function ReportsPage() {
                           <td className="px-4 py-3 text-muted">{duration} min</td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2">
-                              <div className="w-16 bg-gray-100 rounded-full h-2 overflow-hidden">
+                              <div className="w-16 bg-subtle rounded-full h-2 overflow-hidden">
                                 <div
                                   className="h-full rounded-full bg-primary"
                                   style={{ width: `${session.avgFocusScore}%` }}

@@ -19,7 +19,7 @@ export function StepIndicator({ steps, current }: StepIndicatorProps) {
             <div className="flex flex-col items-center gap-1">
               <div
                 className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold border-2 transition-colors
-                  ${isActive ? "bg-primary border-primary text-white" : isCompleted ? "bg-primary border-primary text-white" : "bg-white border-border text-muted"}`}
+                  ${isActive ? "bg-primary border-primary text-white" : isCompleted ? "bg-primary border-primary text-white" : "bg-surface border-border text-muted"}`}
               >
                 {step.number}
               </div>

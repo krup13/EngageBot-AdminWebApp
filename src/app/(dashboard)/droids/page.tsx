@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Search, Plus, Cpu, Wifi, WifiOff, Battery } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/Badge";
-import { MOCK_DROIDS } from "@/lib/api/droids";
+import { getDroids } from "@/lib/api/droids";
 import { Droid } from "@/lib/types";
 
 type FilterTab = "all" | "online" | "attention";
@@ -13,11 +13,16 @@ type FilterTab = "all" | "online" | "attention";
 export default function DroidsPage() {
   const [search, setSearch] = useState("");
   const [filterTab, setFilterTab] = useState<FilterTab>("all");
+  const [droids, setDroids] = useState<Droid[]>([]);
 
-  const attentionDroids = MOCK_DROIDS.filter((d) => d.status === "offline" || d.battery < 20);
-  const onlineDroids = MOCK_DROIDS.filter((d) => d.status === "active");
+  useEffect(() => {
+    getDroids().then(setDroids);
+  }, []);
 
-  const filtered = MOCK_DROIDS.filter((d) => {
+  const attentionDroids = droids.filter((d) => d.status === "offline" || d.battery < 20);
+  const onlineDroids = droids.filter((d) => d.status === "active");
+
+  const filtered = droids.filter((d) => {
     const matchesSearch =
       d.droidId.toLowerCase().includes(search.toLowerCase()) ||
       d.serialNumber.toLowerCase().includes(search.toLowerCase()) ||
@@ -52,14 +57,14 @@ export default function DroidsPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by ID, Serial, or Classroom…"
-            className="rounded-lg border border-border pl-9 pr-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary bg-white w-72"
+            className="rounded-lg border border-border pl-9 pr-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary bg-surface w-72"
           />
         </div>
 
         <div className="flex gap-2 ml-auto">
           {(
             [
-              { key: "all", label: `All Units (${MOCK_DROIDS.length})` },
+              { key: "all", label: `All Units (${droids.length})` },
               { key: "online", label: `Online (${onlineDroids.length})` },
               { key: "attention", label: `Attention Required (${attentionDroids.length})` },
             ] as { key: FilterTab; label: string }[]
@@ -72,7 +77,7 @@ export default function DroidsPage() {
                   ? key === "attention"
                     ? "bg-error-bg text-error border border-error-border"
                     : "bg-primary text-white"
-                  : "bg-white border border-border text-muted hover:text-text"
+                  : "bg-surface border border-border text-muted hover:text-text"
                 }`}
             >
               {label}
@@ -105,7 +110,7 @@ function DroidCard({ droid }: { droid: Droid }) {
   const batteryColor = droid.battery > 50 ? "text-success" : droid.battery > 20 ? "text-warning" : "text-error";
 
   return (
-    <div className={`bg-white rounded-xl border p-4 flex flex-col gap-3 hover:shadow-sm transition-shadow
+    <div className={`bg-surface rounded-xl border p-4 flex flex-col gap-3 hover:shadow-sm transition-shadow
       ${isOffline ? "border-error/40" : "border-border"}`}
     >
       <div className="flex items-start justify-between">

@@ -1,9 +1,13 @@
 "use client";
 
-import { Cpu, Sun, Moon, Monitor, Check, Globe } from "lucide-react";
+import { useState } from "react";
+import { Cpu, Sun, Moon, Monitor, Check, Globe, Database } from "lucide-react";
 import { useTheme } from "@/context/ThemeContext";
 import { TabToggle } from "@/components/ui/TabToggle";
 import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { isFirebaseConfigured } from "@/lib/firebase";
+import { seedDatabase } from "@/lib/api/seed";
 
 type ThemeOption = "light" | "dark" | "system";
 
@@ -74,6 +78,26 @@ function SettingsCard({ children }: { children: React.ReactNode }) {
 
 export default function SettingsPage() {
   const { theme, setTheme, language, setLanguage } = useTheme();
+  const [seeding, setSeeding] = useState(false);
+  const [seedMsg, setSeedMsg] = useState<string | null>(null);
+  const [seedOk, setSeedOk] = useState(true);
+  const live = isFirebaseConfigured();
+
+  async function handleSeed() {
+    setSeeding(true);
+    setSeedMsg(null);
+    try {
+      const res = await seedDatabase();
+      const total = res.reduce((s, r) => s + r.count, 0);
+      setSeedOk(true);
+      setSeedMsg(`Seeded ${total} records — ${res.map((r) => `${r.count} ${r.collection}`).join(", ")}.`);
+    } catch (e) {
+      setSeedOk(false);
+      setSeedMsg((e as Error).message || "Seeding failed. Make sure you're signed in as an admin.");
+    } finally {
+      setSeeding(false);
+    }
+  }
 
   return (
     <div className="p-6 flex flex-col gap-8 max-w-2xl">
@@ -139,6 +163,42 @@ export default function SettingsPage() {
               <Globe size={12} className="shrink-0" />
               Full Bahasa Malaysia translation is coming in a future update.
             </p>
+          </div>
+        </SettingsCard>
+      </SettingsSection>
+
+      {/* ── Developer ───────────────────────────────────────────────────────── */}
+      <SettingsSection title="Developer">
+        <SettingsCard>
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 bg-primary-light rounded-xl flex items-center justify-center shrink-0">
+              <Database size={22} className="text-primary" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-text mb-0.5">Seed sample data</p>
+              <p className="text-xs text-muted">
+                Push the built-in sample teachers, students, droids, class groups and schedules into
+                your live Firestore database. Re-running overwrites the same records (no duplicates).
+              </p>
+            </div>
+          </div>
+
+          {!live && (
+            <p className="text-xs text-warning">
+              Connect Firebase first — set real credentials and <code>NEXT_PUBLIC_DEV_BYPASS=false</code> in
+              <code> .env.local</code>, then restart the dev server.
+            </p>
+          )}
+
+          {seedMsg && (
+            <p className={`text-xs ${seedOk ? "text-success" : "text-error"}`}>{seedMsg}</p>
+          )}
+
+          <div className="flex justify-end">
+            <Button size="sm" onClick={handleSeed} loading={seeding} disabled={!live}>
+              <Database size={14} />
+              Seed sample data
+            </Button>
           </div>
         </SettingsCard>
       </SettingsSection>

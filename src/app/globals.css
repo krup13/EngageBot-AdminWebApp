@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-@theme inline {
+@theme {
   --color-sidebar: #6B7B5C;
   --color-sidebar-hover: #5A6B4B;
   --color-sidebar-active: #5A6B4B;

@@ -47,7 +47,7 @@ export default function RegisterClassGroupPage() {
   if (submitted) {
     return (
       <div className="p-6 max-w-2xl mx-auto">
-        <div className="bg-white rounded-2xl border border-border p-10 flex flex-col items-center text-center gap-5">
+        <div className="bg-surface rounded-2xl border border-border p-10 flex flex-col items-center text-center gap-5">
           <div className="w-16 h-16 rounded-full bg-success-bg flex items-center justify-center">
             <Building2 size={32} className="text-success" />
           </div>
@@ -73,7 +73,7 @@ export default function RegisterClassGroupPage() {
         </p>
       </div>
 
-      <div className="bg-white rounded-2xl border border-border p-8 flex flex-col gap-6">
+      <div className="bg-surface rounded-2xl border border-border p-8 flex flex-col gap-6">
         <div className="flex items-center gap-2 border-b border-border pb-4">
           <Building2 size={18} className="text-primary" />
           <h3 className="text-base font-semibold text-text">Class Information</h3>
@@ -134,7 +134,7 @@ export default function RegisterClassGroupPage() {
             body: "Current system configurations are locked to the 2026 academic cycle. Ensure all Class Names align with the official Ministry of Education naming conventions.",
           },
         ].map(({ icon: Icon, title, body }) => (
-          <div key={title} className="bg-white rounded-xl border border-border p-4">
+          <div key={title} className="bg-surface rounded-xl border border-border p-4">
             <div className="flex items-center gap-2 mb-2">
               <Icon size={15} className="text-muted" />
               <h4 className="text-sm font-semibold text-text">{title}</h4>

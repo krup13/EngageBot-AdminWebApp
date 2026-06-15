@@ -8,7 +8,7 @@ import { isFirebaseConfigured, readWhere, where } from "@/lib/firestore";
 
 // ── Mock data ─────────────────────────────────────────────────────────────────
 
-const MOCK_SESSION_REPORTS: SessionReport[] = [
+export const MOCK_SESSION_REPORTS: SessionReport[] = [
   // ── 2026-03-24 (Monday) ─────────────────────────────────────────────────────
   {
     id: "SR-001",

@@ -41,7 +41,7 @@ const TOTAL_HOURS = TIME_END - TIME_START;
 
 export function ScheduleTimeline() {
   return (
-    <div className="bg-white rounded-xl border border-border">
+    <div className="bg-surface rounded-xl border border-border">
       <div className="flex items-center justify-between px-5 pt-5 pb-3">
         <div>
           <h3 className="text-sm font-semibold text-text">Upcoming Schedules Today</h3>
@@ -75,7 +75,7 @@ export function ScheduleTimeline() {
           {MOCK_TIMELINE.map((row) => (
             <div key={row.classGroup} className="flex items-center gap-0">
               <div className="w-24 shrink-0 text-xs font-medium text-text pr-3">{row.classGroup}</div>
-              <div className="flex-1 relative h-10 bg-gray-50 rounded border border-border">
+              <div className="flex-1 relative h-10 bg-subtle rounded border border-border">
                 {row.sessions.map((s) => {
                   const leftPct = ((s.startHour - TIME_START) / TOTAL_HOURS) * 100;
                   const widthPct = ((s.endHour - s.startHour) / TOTAL_HOURS) * 100;

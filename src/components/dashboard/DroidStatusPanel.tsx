@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Cpu, Wifi, WifiOff } from "lucide-react";
 
 interface DroidEntry {
@@ -15,7 +16,7 @@ interface DroidStatusPanelProps {
 
 export function DroidStatusPanel({ droids, uptimePercent = 95 }: DroidStatusPanelProps) {
   return (
-    <div className="bg-white rounded-xl border border-border">
+    <div className="bg-surface rounded-xl border border-border">
       <div className="flex items-center justify-between px-5 pt-5 pb-3">
         <h3 className="text-sm font-semibold text-text">Droid Status</h3>
         <span className="text-xs font-semibold text-success bg-success-bg px-2 py-0.5 rounded-full">
@@ -30,7 +31,7 @@ export function DroidStatusPanel({ droids, uptimePercent = 95 }: DroidStatusPane
           return (
             <div key={d.id} className="flex items-center justify-between px-5 py-3">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center">
+                <div className="w-8 h-8 rounded-lg bg-subtle flex items-center justify-center">
                   <Cpu size={16} className={isOffline ? "text-error" : "text-primary"} />
                 </div>
                 <div>
@@ -61,9 +62,12 @@ export function DroidStatusPanel({ droids, uptimePercent = 95 }: DroidStatusPane
       </div>
 
       <div className="border-t border-border px-5 py-3">
-        <button className="w-full text-sm font-medium text-center text-muted hover:text-text border border-border rounded-lg py-2 hover:bg-subtle transition-colors">
+        <Link
+          href="/droids"
+          className="block w-full text-sm font-medium text-center text-muted hover:text-text border border-border rounded-lg py-2 hover:bg-subtle transition-colors"
+        >
           Manage Inventory
-        </button>
+        </Link>
       </div>
     </div>
   );

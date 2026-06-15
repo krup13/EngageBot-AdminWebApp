@@ -54,7 +54,7 @@ export default function RegistrationHubPage() {
           <Link
             key={href}
             href={href}
-            className="group bg-white rounded-2xl border border-border p-7 flex flex-col items-center text-center gap-4 hover:border-primary/40 hover:shadow-md transition-all"
+            className="group bg-surface rounded-2xl border border-border p-7 flex flex-col items-center text-center gap-4 hover:border-primary/40 hover:shadow-md transition-all"
           >
             <div className={`w-14 h-14 rounded-full ${bg} flex items-center justify-center`}>
               <Icon size={26} className={color} />

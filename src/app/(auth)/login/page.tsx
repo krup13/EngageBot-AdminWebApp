@@ -43,7 +43,7 @@ export default function LoginPage() {
       {/* Right panel */}
       <div className="flex-1 flex flex-col items-center justify-between bg-background px-6 py-10">
         <div className="flex-1 flex items-center justify-center w-full">
-          <div className="w-full max-w-sm bg-white rounded-2xl shadow-md px-8 py-10 flex flex-col gap-6">
+          <div className="w-full max-w-sm bg-surface rounded-2xl shadow-md px-8 py-10 flex flex-col gap-6">
             <div>
               <h2 className="text-2xl font-bold text-text">Welcome Back</h2>
               <p className="text-sm text-muted mt-1">EngageBot Admin Portal</p>

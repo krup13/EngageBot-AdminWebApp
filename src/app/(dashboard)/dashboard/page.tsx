@@ -1,16 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Users, GraduationCap, Cpu, Calendar, UserPlus, Plus } from "lucide-react";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { TeachingSessionsTable } from "@/components/dashboard/TeachingSessionsTable";
 import { DroidStatusPanel } from "@/components/dashboard/DroidStatusPanel";
 import { ScheduleTimeline } from "@/components/dashboard/ScheduleTimeline";
+import { LateAlertCarousel } from "@/components/dashboard/LateAlertCarousel";
 import { AlertBanner } from "@/components/ui/AlertBanner";
 import { Button } from "@/components/ui/Button";
-import { MOCK_SESSIONS } from "@/lib/api/schedules";
-import { SIDEBAR_DROIDS } from "@/lib/api/droids";
+import { getSessions } from "@/lib/api/schedules";
+import { getDroids } from "@/lib/api/droids";
+import { getTeachers } from "@/lib/api/teachers";
+import { getStudents } from "@/lib/api/students";
+import { dayOf } from "@/lib/schedule-utils";
+import type { ClassSession, Droid, Teacher, Student } from "@/lib/types";
 import { useAuth } from "@/context/AuthContext";
 
 const QUICK_ACTIONS = [
@@ -24,7 +29,44 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const [alertVisible, setAlertVisible] = useState(true);
   const firstName = user?.displayName?.split(" ")[0] ?? "Admin";
-  const todaySessions = MOCK_SESSIONS.slice(0, 5);
+
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [droids, setDroids] = useState<Droid[]>([]);
+  const [sessions, setSessions] = useState<ClassSession[]>([]);
+
+  useEffect(() => {
+    getTeachers().then(setTeachers);
+    getStudents().then(setStudents);
+    getDroids().then(setDroids);
+    getSessions().then(setSessions);
+  }, []);
+
+  const today = dayOf(new Date());
+  const todayFiltered = today ? sessions.filter((s) => s.day === today) : sessions;
+  // Fall back to all sessions if today's weekday has none, so the dashboard never looks empty.
+  const todaySessions = (todayFiltered.length ? todayFiltered : sessions).slice(0, 6);
+  const activeDroids = droids.filter((d) => d.status === "active").length;
+  const offlineDroids = droids.filter((d) => d.status === "offline").length;
+
+  // Hardware alert from real fleet data: first offline droid, else first low-battery one.
+  const attentionDroid = droids.find((d) => d.status === "offline") ?? droids.find((d) => d.battery < 20);
+  const hardwareMsg = attentionDroid
+    ? attentionDroid.status === "offline"
+      ? `Droid ${attentionDroid.droidId} (${attentionDroid.serialNumber}) in ${attentionDroid.assignedRoom} is offline — last ping ${attentionDroid.lastPing}.`
+      : `Droid ${attentionDroid.droidId} in ${attentionDroid.assignedRoom} is low on battery (${attentionDroid.battery}%).`
+    : "";
+  const classGroupCount = new Set(students.map((s) => s.classGroup)).size;
+  const pendingTeachers = teachers.filter((t) => t.status === "pending").length;
+
+  // Sidebar droid panel shape
+  const sidebarDroids = droids.slice(0, 5).map((d) => ({
+    id: d.droidId,
+    serial: d.serialNumber,
+    room: d.assignedRoom,
+    battery: d.battery,
+    status: d.status,
+  }));
 
   return (
     <div className="p-6 max-w-screen-xl">
@@ -49,7 +91,7 @@ export default function DashboardPage() {
           <Link
             key={href}
             href={href}
-            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-border rounded-xl text-sm font-medium text-text hover:bg-subtle hover:border-primary/30 transition-colors"
+            className="flex items-center gap-2 px-4 py-2.5 bg-surface border border-border rounded-xl text-sm font-medium text-text hover:bg-subtle hover:border-primary/30 transition-colors"
           >
             <Icon size={16} className="text-primary" />
             {label}
@@ -57,24 +99,33 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* Hardware alert */}
-      {alertVisible && (
-        <div className="mb-6">
+      {/* Alerts: teacher-late carousel (real-time) + hardware alert */}
+      <div className="flex flex-col gap-3 mb-6">
+        <LateAlertCarousel />
+        {alertVisible && attentionDroid && (
           <AlertBanner
             variant="warning"
             title="Hardware Alert"
-            message="Droid EB-7811-C in Hall 1 has been offline for 15 minutes."
+            message={hardwareMsg}
             onDismiss={() => setAlertVisible(false)}
+            actions={
+              <Link
+                href="/droids"
+                className="text-xs font-semibold text-warning bg-warning-bg border border-warning-border px-3 py-1.5 rounded-lg hover:bg-yellow-200 transition-colors whitespace-nowrap"
+              >
+                View Fleet
+              </Link>
+            }
           />
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <StatCard icon={Users} label="Total Teachers" value="48" subtext="2 pending registration" />
-        <StatCard icon={GraduationCap} label="Total Students" value="1,240" subtext="Across 42 class groups" />
-        <StatCard icon={Cpu} label="Active Droids" value="38 / 40" subtext="2 droids currently offline" />
-        <StatCard icon={Calendar} label="Sessions Today" value="156" subtext="+12% from last week" live />
+        <StatCard icon={Users} label="Total Teachers" value={String(teachers.length)} subtext={`${pendingTeachers} pending registration`} />
+        <StatCard icon={GraduationCap} label="Total Students" value={String(students.length)} subtext={`Across ${classGroupCount} class group${classGroupCount === 1 ? "" : "s"}`} />
+        <StatCard icon={Cpu} label="Active Droids" value={`${activeDroids} / ${droids.length}`} subtext={`${offlineDroids} droid${offlineDroids === 1 ? "" : "s"} currently offline`} />
+        <StatCard icon={Calendar} label="Sessions Today" value={String(todaySessions.length)} subtext="Scheduled for today" live />
       </div>
 
       {/* Main content */}
@@ -83,7 +134,7 @@ export default function DashboardPage() {
           <TeachingSessionsTable sessions={todaySessions} />
         </div>
         <div>
-          <DroidStatusPanel droids={SIDEBAR_DROIDS} />
+          <DroidStatusPanel droids={sidebarDroids} />
         </div>
       </div>
 

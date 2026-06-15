@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { initializeFirestore, getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -13,7 +13,23 @@ const firebaseConfig = {
 
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+
+/**
+ * Auto-detect long-polling so Firestore still connects on networks (VPNs,
+ * proxies, corporate firewalls, some Windows stacks) that block its default
+ * WebChannel streaming transport — the usual cause of "client is offline".
+ *
+ * `initializeFirestore` may only be called once per app; on Turbopack/HMR
+ * re-runs the instance already exists, so fall back to `getFirestore`.
+ */
+function getDb() {
+  try {
+    return initializeFirestore(app, { experimentalForceLongPolling: true });
+  } catch {
+    return getFirestore(app);
+  }
+}
+export const db = getDb();
 
 /**
  * True only when real Firebase credentials are present in `.env.local`.

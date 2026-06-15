@@ -1,29 +1,108 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Search, Filter, MoreVertical, Download, UserPlus } from "lucide-react";
+import { Search, MoreVertical, Download, UserPlus, CalendarClock, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { MOCK_TEACHERS } from "@/lib/api/teachers";
+import { Modal } from "@/components/ui/Modal";
+import { getTeachers, updateTeacher } from "@/lib/api/teachers";
+import { getSessions, DAYS } from "@/lib/api/schedules";
+import {
+  subjectsForTeacher,
+  freeTeachers,
+  sessionsForTeacherToday,
+} from "@/lib/schedule-utils";
+import type { Teacher, ClassSession, SessionDay } from "@/lib/types";
+
+const STATUS_OPTIONS: Teacher["status"][] = ["active", "pending", "inactive"];
 
 export default function TeachersPage() {
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [sessions, setSessions] = useState<ClassSession[]>([]);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
 
-  const filtered = MOCK_TEACHERS.filter(
-    (t) =>
-      t.name.toLowerCase().includes(search.toLowerCase()) ||
-      t.email.toLowerCase().includes(search.toLowerCase()) ||
-      t.employeeId.toLowerCase().includes(search.toLowerCase())
+  // Filters
+  const [subjectFilter, setSubjectFilter] = useState("all");
+  const [freeDay, setFreeDay] = useState<SessionDay | "">("");
+  const [freeStart, setFreeStart] = useState("");
+  const [freeEnd, setFreeEnd] = useState("");
+
+  // Edit modal
+  const [editTeacher, setEditTeacher] = useState<Teacher | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editDept, setEditDept] = useState("");
+  const [editStatus, setEditStatus] = useState<Teacher["status"]>("active");
+  const [saving, setSaving] = useState(false);
+
+  // Today's-classes modal
+  const [todayTeacher, setTodayTeacher] = useState<Teacher | null>(null);
+
+  useEffect(() => {
+    getTeachers().then(setTeachers);
+    getSessions().then(setSessions);
+  }, []);
+
+  const allSubjects = useMemo(
+    () => [...new Set(sessions.map((s) => s.subject))].sort(),
+    [sessions]
   );
 
-  function toggleSelect(id: string) {
-    setSelected((prev) => prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]);
-  }
+  // Teachers free in the chosen day/time window (only when all three are set).
+  const freeIds = useMemo(() => {
+    if (!freeDay || !freeStart || !freeEnd) return null;
+    return new Set(
+      freeTeachers(teachers, sessions, freeDay, freeStart, freeEnd).map((t) => t.id)
+    );
+  }, [freeDay, freeStart, freeEnd, teachers, sessions]);
 
+  const filtered = teachers.filter((t) => {
+    const matchesSearch =
+      t.name.toLowerCase().includes(search.toLowerCase()) ||
+      t.email.toLowerCase().includes(search.toLowerCase()) ||
+      t.employeeId.toLowerCase().includes(search.toLowerCase());
+    const matchesSubject =
+      subjectFilter === "all" || subjectsForTeacher(sessions, t.id).includes(subjectFilter);
+    const matchesFree = freeIds === null || freeIds.has(t.id);
+    return matchesSearch && matchesSubject && matchesFree;
+  });
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => (prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]));
+  }
   function toggleAll() {
     setSelected(selected.length === filtered.length ? [] : filtered.map((t) => t.id));
   }
+
+  function openEdit(t: Teacher) {
+    setEditTeacher(t);
+    setEditName(t.name);
+    setEditEmail(t.email);
+    setEditDept(t.department);
+    setEditStatus(t.status);
+  }
+
+  async function handleSave() {
+    if (!editTeacher) return;
+    const patch = {
+      name: editName,
+      email: editEmail,
+      department: editDept,
+      status: editStatus,
+    };
+    setSaving(true);
+    await updateTeacher(editTeacher.id, patch);
+    setTeachers((prev) =>
+      prev.map((t) => (t.id === editTeacher.id ? { ...t, ...patch } : t))
+    );
+    setSaving(false);
+    setEditTeacher(null);
+  }
+
+  const inputCls =
+    "rounded-lg border border-border px-3 py-2.5 text-sm bg-surface outline-none focus:border-primary focus:ring-1 focus:ring-primary";
+  const filterCls = "h-9 px-3 text-sm border border-border rounded-lg bg-surface text-text outline-none focus:ring-1 focus:ring-primary";
 
   return (
     <div className="p-6">
@@ -46,29 +125,57 @@ export default function TeachersPage() {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex items-center gap-3 mb-5">
-        <div className="relative flex-1 max-w-sm">
+      {/* Search + filters */}
+      <div className="flex flex-wrap items-center gap-3 mb-5">
+        <div className="relative flex-1 min-w-[220px] max-w-sm">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by name, ID or email…"
-            className="w-full rounded-lg border border-border pl-9 pr-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary bg-white"
+            className="w-full rounded-lg border border-border pl-9 pr-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary bg-surface"
           />
         </div>
-        <Button variant="secondary" size="sm">
-          <Filter size={14} />
-          Filters
-        </Button>
-        <button className="text-sm text-muted hover:text-text">Saved Presets</button>
+
+        <select value={subjectFilter} onChange={(e) => setSubjectFilter(e.target.value)} className={filterCls}>
+          <option value="all">All subjects</option>
+          {allSubjects.map((s) => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+        </select>
+
         <span className="text-sm text-muted ml-auto">
-          Showing <strong>{filtered.length}</strong> of <strong>124</strong> registered teachers
+          Showing <strong>{filtered.length}</strong> of <strong>{teachers.length}</strong> teachers
         </span>
       </div>
 
+      {/* Free-at filter */}
+      <div className="flex flex-wrap items-center gap-2 mb-5 text-sm">
+        <span className="text-muted">Free at:</span>
+        <select value={freeDay} onChange={(e) => setFreeDay(e.target.value as SessionDay | "")} className={filterCls}>
+          <option value="">Any day</option>
+          {DAYS.map((d) => (
+            <option key={d} value={d}>{d[0].toUpperCase() + d.slice(1)}</option>
+          ))}
+        </select>
+        <input type="time" value={freeStart} onChange={(e) => setFreeStart(e.target.value)} className={filterCls} />
+        <span className="text-muted">–</span>
+        <input type="time" value={freeEnd} onChange={(e) => setFreeEnd(e.target.value)} className={filterCls} />
+        {(freeDay || freeStart || freeEnd) && (
+          <button
+            onClick={() => { setFreeDay(""); setFreeStart(""); setFreeEnd(""); }}
+            className="text-xs text-muted hover:text-text underline"
+          >
+            Clear
+          </button>
+        )}
+        {freeIds !== null && (
+          <span className="text-xs text-primary">{freeIds.size} teacher(s) free</span>
+        )}
+      </div>
+
       {/* Table */}
-      <div className="bg-white rounded-xl border border-border overflow-hidden">
+      <div className="bg-surface rounded-xl border border-border overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-subtle">
@@ -84,7 +191,7 @@ export default function TeachersPage() {
               <th className="text-left text-xs font-medium text-muted px-4 py-3">DEPARTMENT</th>
               <th className="text-left text-xs font-medium text-muted px-4 py-3">ASSIGNED CLASSES</th>
               <th className="text-left text-xs font-medium text-muted px-4 py-3">DATE ADDED</th>
-              <th className="w-10 px-4 py-3" />
+              <th className="px-4 py-3" />
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -104,7 +211,7 @@ export default function TeachersPage() {
                       <div className="w-9 h-9 rounded-full bg-primary-light flex items-center justify-center text-sm font-semibold text-primary">
                         {t.name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}
                       </div>
-                      <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white ${t.status === "active" ? "bg-success" : t.status === "pending" ? "bg-warning" : "bg-muted"}`} />
+                      <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-surface ${t.status === "active" ? "bg-success" : t.status === "pending" ? "bg-warning" : "bg-muted"}`} />
                     </div>
                     <div>
                       <p className="font-medium text-text">{t.name}</p>
@@ -113,14 +220,14 @@ export default function TeachersPage() {
                   </div>
                 </td>
                 <td className="px-4 py-3">
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700 border border-gray-200">
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-subtle text-muted border border-border">
                     {t.department}
                   </span>
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex flex-wrap gap-1.5">
                     {t.assignedClasses.map((c) => (
-                      <span key={c} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-light text-primary border border-green-200">
+                      <span key={c} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-light text-primary border border-success/30">
                         {c}
                       </span>
                     ))}
@@ -130,15 +237,108 @@ export default function TeachersPage() {
                   {new Date(t.dateAdded).toLocaleDateString("en-MY", { day: "2-digit", month: "short", year: "numeric" })}
                 </td>
                 <td className="px-4 py-3">
-                  <button className="text-muted hover:text-text p-1 rounded transition-colors">
-                    <MoreVertical size={16} />
-                  </button>
+                  <div className="flex items-center justify-end gap-1">
+                    <button
+                      onClick={() => setTodayTeacher(t)}
+                      title="Today's classes"
+                      className="text-muted hover:text-primary p-1.5 rounded transition-colors"
+                    >
+                      <CalendarClock size={16} />
+                    </button>
+                    <button
+                      onClick={() => openEdit(t)}
+                      title="Edit teacher"
+                      className="text-muted hover:text-text p-1.5 rounded transition-colors"
+                    >
+                      <MoreVertical size={16} />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={6} className="px-4 py-10 text-center text-sm text-muted">
+                  No teachers match the current filters.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
+
+      {/* Edit Teacher modal */}
+      <Modal
+        open={!!editTeacher}
+        onClose={() => setEditTeacher(null)}
+        title="Edit Teacher Details"
+        subtitle={editTeacher ? `ID: ${editTeacher.employeeId}` : undefined}
+      >
+        {editTeacher && (
+          <div className="flex flex-col gap-5">
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-medium text-text">Full Name</label>
+              <input value={editName} onChange={(e) => setEditName(e.target.value)} className={inputCls} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-medium text-text">Work Email</label>
+              <input value={editEmail} onChange={(e) => setEditEmail(e.target.value)} className={inputCls} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex flex-col gap-1">
+                <label className="text-sm font-medium text-text">Department</label>
+                <input value={editDept} onChange={(e) => setEditDept(e.target.value)} className={inputCls} />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-sm font-medium text-text">Status</label>
+                <select value={editStatus} onChange={(e) => setEditStatus(e.target.value as Teacher["status"])} className={inputCls}>
+                  {STATUS_OPTIONS.map((s) => (
+                    <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 pt-2 border-t border-border">
+              <Button variant="ghost" onClick={() => setEditTeacher(null)}>Cancel</Button>
+              <Button onClick={handleSave} loading={saving}><Pencil size={14} />Save Changes</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Today's classes modal */}
+      <Modal
+        open={!!todayTeacher}
+        onClose={() => setTodayTeacher(null)}
+        title={todayTeacher ? `${todayTeacher.name} — Today's Classes` : ""}
+        subtitle="Scheduled sessions for the current weekday"
+      >
+        {todayTeacher && <TodayClasses teacher={todayTeacher} sessions={sessions} />}
+      </Modal>
+    </div>
+  );
+}
+
+function TodayClasses({ teacher, sessions }: { teacher: Teacher; sessions: ClassSession[] }) {
+  const today = (["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"][new Date().getDay()]) as string;
+  const day = (DAYS.includes(today as SessionDay) ? today : "monday") as SessionDay;
+  const todays = sessionsForTeacherToday(sessions, teacher.id, day);
+
+  if (todays.length === 0) {
+    return <p className="text-sm text-muted">No classes scheduled for {day[0].toUpperCase() + day.slice(1)}.</p>;
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      {todays.map((s) => (
+        <div key={s.id} className="flex items-center gap-3 rounded-lg border border-border px-4 py-3">
+          <div className="w-1.5 h-10 rounded-full" style={{ backgroundColor: s.color ?? "#E5E7EB" }} />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-text">{s.subject}</p>
+            <p className="text-xs text-muted">{s.classGroup}</p>
+          </div>
+          <span className="text-sm font-mono text-muted">{s.startTime}–{s.endTime}</span>
+        </div>
+      ))}
     </div>
   );
 }

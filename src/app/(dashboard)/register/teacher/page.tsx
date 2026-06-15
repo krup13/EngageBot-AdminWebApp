@@ -61,7 +61,7 @@ export default function RegisterTeacherPage() {
         <StepIndicator steps={STEPS} current={step} />
       </div>
 
-      <div className="bg-white rounded-2xl border border-border p-8">
+      <div className="bg-surface rounded-2xl border border-border p-8">
         {step === 1 && (
           <div className="flex flex-col gap-6">
             <div className="flex items-center gap-2 mb-2">

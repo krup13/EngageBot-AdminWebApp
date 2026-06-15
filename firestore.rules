@@ -54,11 +54,12 @@ service cloud.firestore {
     match /subjects/{id}      { allow read: if isAdmin() || isRegisteredTeacher(); allow write: if isAdmin(); }
     match /classSchedules/{id}{ allow read: if isAdmin() || isRegisteredTeacher(); allow write: if isAdmin(); }
 
-    // ── Reports: written by the droid/AI pipeline (service account, bypasses
-    //    rules); read-only from the apps. ──────────────────────────────────────
+    // ── Reports: normally written by the droid/AI pipeline (service account,
+    //    bypasses rules). Admins may also write them so sample data can be
+    //    seeded for demos. Read by admins + registered teachers. ───────────────
     match /sessionReports/{id} {
       allow read: if isAdmin() || isRegisteredTeacher();
-      allow write: if false;
+      allow write: if isAdmin();
     }
 
     // ── Audit log: append-only from the apps, readable by admins. ─────────────

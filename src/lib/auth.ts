@@ -12,6 +12,13 @@ const ALLOWED_DOMAINS = (
 
 const DEV_BYPASS = process.env.NEXT_PUBLIC_DEV_BYPASS === "true";
 
+// OAuth access token from Google sign-in, used for Google Calendar API calls.
+// Held in memory only (cleared on sign-out / reload).
+let calendarAccessToken: string | null = null;
+export function getCalendarToken(): string | null {
+  return calendarAccessToken;
+}
+
 export function isDomainAllowed(email: string): boolean {
   const domain = email.split("@")[1];
   return ALLOWED_DOMAINS.includes(domain);
@@ -46,8 +53,11 @@ export async function signInWithGoogle(): Promise<{
 
   try {
     const provider = new GoogleAuthProvider();
+    // Request Calendar access so the app can push schedules to teachers' calendars.
+    provider.addScope("https://www.googleapis.com/auth/calendar.events");
     provider.setCustomParameters({ prompt: "select_account" });
     const result = await signInWithPopup(auth, provider);
+    calendarAccessToken = GoogleAuthProvider.credentialFromResult(result)?.accessToken ?? null;
     const firebaseUser = result.user;
 
     if (!firebaseUser.email || !isDomainAllowed(firebaseUser.email)) {
@@ -81,6 +91,7 @@ export async function signInWithGoogle(): Promise<{
 }
 
 export async function signOut(): Promise<void> {
+  calendarAccessToken = null;
   if (DEV_BYPASS) {
     clearSessionCookie();
     return;

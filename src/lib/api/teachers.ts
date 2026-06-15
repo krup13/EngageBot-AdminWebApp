@@ -1,5 +1,5 @@
 import { Teacher, CreateTeacherInput } from "@/lib/types";
-import { isFirebaseConfigured, readAll, create, nextSequence } from "@/lib/firestore";
+import { isFirebaseConfigured, readAll, readWhere, create, update, nextSequence, where } from "@/lib/firestore";
 
 const COLLECTION = "teachers";
 
@@ -17,9 +17,17 @@ export async function getTeachers(): Promise<Teacher[]> {
 }
 
 export async function registerTeacher(data: CreateTeacherInput): Promise<Teacher> {
+  // Google sign-in returns the canonical lowercase email. The mobile app matches
+  // on this exact value (and the authUid-linking security rule does too), so
+  // store it normalized regardless of how the admin typed it.
+  const email = data.email.trim().toLowerCase();
+
   if (!isFirebaseConfigured()) {
+    const existing = MOCK_TEACHERS.find((t) => t.email.toLowerCase() === email);
+    if (existing) return existing;
     const newTeacher: Teacher = {
       ...data,
+      email,
       id: String(Date.now()),
       employeeId: `EB-2026-${String(MOCK_TEACHERS.length + 1).padStart(3, "0")}`,
       dateAdded: new Date().toISOString().split("T")[0],
@@ -30,13 +38,30 @@ export async function registerTeacher(data: CreateTeacherInput): Promise<Teacher
     return newTeacher;
   }
 
+  // Don't create a duplicate record for the same teacher — keeps the mobile
+  // "find my record by email" lookup unambiguous.
+  const dupes = await readWhere<Teacher>(COLLECTION, where("email", "==", email));
+  if (dupes.length > 0) return dupes[0];
+
   const seq = await nextSequence(COLLECTION);
   const fields: Omit<Teacher, "id"> = {
     ...data,
+    email,
     employeeId: `EB-2026-${String(seq).padStart(3, "0")}`,
     dateAdded: new Date().toISOString().split("T")[0],
     status: "pending",
     authUid: null, // linked when the teacher first signs into the mobile app
   };
   return create<Teacher>(COLLECTION, fields);
+}
+
+export type UpdateTeacherInput = Partial<Pick<Teacher, "name" | "email" | "department" | "assignedClasses" | "status">>;
+
+export async function updateTeacher(id: string, patch: UpdateTeacherInput): Promise<void> {
+  if (!isFirebaseConfigured()) {
+    const t = MOCK_TEACHERS.find((x) => x.id === id);
+    if (t) Object.assign(t, patch);
+    return;
+  }
+  await update<Teacher>(COLLECTION, id, patch);
 }

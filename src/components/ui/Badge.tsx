@@ -5,10 +5,10 @@ interface BadgeProps {
 }
 
 const variantClasses = {
-  success: "bg-success-bg text-success border border-green-200",
+  success: "bg-success-bg text-success border border-success/30",
   warning: "bg-warning-bg text-warning border border-yellow-200",
   error: "bg-error-bg text-error border border-red-200",
-  neutral: "bg-gray-100 text-gray-600 border border-gray-200",
+  neutral: "bg-subtle text-muted border border-border",
   info: "bg-blue-50 text-blue-700 border border-blue-200",
   live: "bg-green-600 text-white",
 };

@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Search, ArrowUpDown, MoreVertical, GraduationCap } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { StatusBadge } from "@/components/ui/Badge";
 import { AlertBanner } from "@/components/ui/AlertBanner";
-import { MOCK_STUDENTS } from "@/lib/api/students";
+import { getStudents, updateStudent } from "@/lib/api/students";
 import { Student } from "@/lib/types";
 
 const CLASS_OPTIONS = [
@@ -18,14 +18,20 @@ const CLASS_OPTIONS = [
 ];
 
 export default function StudentsPage() {
+  const [students, setStudents] = useState<Student[]>([]);
   const [search, setSearch] = useState("");
   const [editStudent, setEditStudent] = useState<Student | null>(null);
   const [editName, setEditName] = useState("");
   const [editIC, setEditIC] = useState("");
   const [editClass, setEditClass] = useState("");
   const [icError, setIcError] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  const filtered = MOCK_STUDENTS.filter((s) =>
+  useEffect(() => {
+    getStudents().then(setStudents);
+  }, []);
+
+  const filtered = students.filter((s) =>
     s.name.toLowerCase().includes(search.toLowerCase()) ||
     s.icNumber.includes(search)
   );
@@ -38,12 +44,20 @@ export default function StudentsPage() {
     setIcError("");
   }
 
-  function handleSave() {
+  async function handleSave() {
+    if (!editStudent) return;
     const clean = editIC.replace(/\D/g, "");
     if (clean.length !== 12) {
       setIcError("IC number must contain 12 digits excluding hyphens.");
       return;
     }
+    const patch = { name: editName, icNumber: editIC, classGroup: editClass };
+    setSaving(true);
+    await updateStudent(editStudent.id, patch);
+    setStudents((prev) =>
+      prev.map((s) => (s.id === editStudent.id ? { ...s, ...patch } : s))
+    );
+    setSaving(false);
     setEditStudent(null);
   }
 
@@ -70,11 +84,11 @@ export default function StudentsPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by full name or IC…"
-            className="w-full rounded-lg border border-border pl-9 pr-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary bg-white"
+            className="w-full rounded-lg border border-border pl-9 pr-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary bg-surface"
           />
         </div>
         <span className="text-sm text-muted ml-auto">
-          Showing <strong>{filtered.length}</strong> of <strong>{MOCK_STUDENTS.length}</strong> total students
+          Showing <strong>{filtered.length}</strong> of <strong>{students.length}</strong> total students
         </span>
       </div>
 
@@ -87,7 +101,7 @@ export default function StudentsPage() {
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-xl border border-border overflow-hidden">
+      <div className="bg-surface rounded-xl border border-border overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-subtle">
@@ -119,7 +133,7 @@ export default function StudentsPage() {
                 <td className="px-4 py-3 font-mono text-xs text-muted">{s.icNumber}</td>
                 <td className="px-4 py-3 text-sm text-text">{s.classGroup}</td>
                 <td className="px-4 py-3">
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${s.source === "csv" ? "bg-blue-50 text-blue-700" : "bg-gray-100 text-gray-600"}`}>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${s.source === "csv" ? "bg-blue-50 text-blue-700" : "bg-subtle text-muted"}`}>
                     {s.source.toUpperCase()}
                   </span>
                 </td>
@@ -137,7 +151,7 @@ export default function StudentsPage() {
           </tbody>
         </table>
         <div className="px-5 py-3 border-t border-border text-xs text-muted">
-          Showing {filtered.length} of {MOCK_STUDENTS.length} total students in this batch session.
+          Showing {filtered.length} of {students.length} total students in this batch session.
         </div>
       </div>
 
@@ -177,7 +191,7 @@ export default function StudentsPage() {
                 <select
                   value={editClass}
                   onChange={(e) => setEditClass(e.target.value)}
-                  className="rounded-lg border border-border px-3 py-2.5 text-sm bg-white outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                  className="rounded-lg border border-border px-3 py-2.5 text-sm bg-surface outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                 >
                   {CLASS_OPTIONS.map((o) => (
                     <option key={o.value} value={o.label}>{o.label}</option>
@@ -195,7 +209,7 @@ export default function StudentsPage() {
 
             <div className="flex justify-end gap-3 pt-2 border-t border-border">
               <Button variant="ghost" onClick={() => setEditStudent(null)}>Cancel Changes</Button>
-              <Button onClick={handleSave}>Save Record</Button>
+              <Button onClick={handleSave} loading={saving}>Save Record</Button>
             </div>
           </div>
         )}

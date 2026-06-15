@@ -77,9 +77,26 @@ export interface ClassSession {
   day: SessionDay;
   status: "ongoing" | "scheduled" | "completed";
   color?: string;
+  // Teacher attendance — set when the teacher checks in via the droid (UC-10).
+  // Drives the dashboard "late" alert; the alert clears once checkedIn is true.
+  checkedIn?: boolean;
+  checkInTime?: string; // "HH:MM"
 }
 
 export type CreateClassSessionInput = Omit<ClassSession, "id" | "status">;
+
+// Written by the admin app, delivered by the mobile app (FCM, separate repo).
+export interface AppNotification {
+  id: string;
+  teacherId: string;
+  type: "relief" | "late";
+  message: string;
+  sessionId?: string;
+  read: boolean;
+  createdAt: string; // ISO
+}
+
+export type CreateNotificationInput = Omit<AppNotification, "id" | "read" | "createdAt">;
 
 export type DroidStatus = "ACTIVE" | "INACTIVE" | "OFFLINE";
 export type BadgeVariant = "success" | "warning" | "error" | "neutral" | "info";

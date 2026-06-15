@@ -82,7 +82,7 @@ export default function RegisterDroidPage() {
 
       {/* Step 1: Registration form */}
       {step === 1 && (
-        <div className="bg-white rounded-2xl border border-border p-8">
+        <div className="bg-surface rounded-2xl border border-border p-8">
           <div className="flex items-center gap-2 mb-6 pb-4 border-b border-border">
             <Cpu size={18} className="text-primary" />
             <div>
@@ -150,7 +150,7 @@ export default function RegisterDroidPage() {
 
       {/* Step 2: Review */}
       {step === 2 && (
-        <div className="bg-white rounded-2xl border border-border p-8">
+        <div className="bg-surface rounded-2xl border border-border p-8">
           <h3 className="text-base font-semibold text-text mb-6">Review &amp; Confirm</h3>
           <div className="flex flex-col gap-4 bg-subtle rounded-xl border border-border p-5">
             {[
@@ -171,7 +171,7 @@ export default function RegisterDroidPage() {
 
       {/* Step 3: Done */}
       {step === 3 && result && (
-        <div className="bg-white rounded-2xl border border-border p-10 flex flex-col items-center text-center gap-5">
+        <div className="bg-surface rounded-2xl border border-border p-10 flex flex-col items-center text-center gap-5">
           <div className="w-16 h-16 rounded-full bg-success-bg flex items-center justify-center">
             <CheckCircle2 size={36} className="text-success" />
           </div>

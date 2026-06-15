@@ -7,6 +7,9 @@ import {
   getDocs,
   getCountFromServer,
   addDoc,
+  doc,
+  setDoc,
+  updateDoc,
   query,
   where,
   type QueryConstraint,
@@ -34,6 +37,25 @@ export async function readWhere<T>(
 export async function create<T>(name: string, data: Omit<T, "id">): Promise<T> {
   const ref = await addDoc(collection(db, name), data as Record<string, unknown>);
   return { id: ref.id, ...(data as object) } as T;
+}
+
+/** Write a document at a specific id (overwrites if it exists). Used for seeding
+ *  so mock ids are preserved and cross-collection references stay consistent. */
+export async function setWithId<T>(
+  name: string,
+  id: string,
+  data: Omit<T, "id">
+): Promise<void> {
+  await setDoc(doc(db, name, id), data as Record<string, unknown>);
+}
+
+/** Patch fields on an existing document by id. */
+export async function update<T>(
+  name: string,
+  id: string,
+  patch: Partial<Omit<T, "id">>
+): Promise<void> {
+  await updateDoc(doc(db, name, id), patch as Record<string, unknown>);
 }
 
 /**
