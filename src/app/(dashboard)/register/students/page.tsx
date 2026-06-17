@@ -1,17 +1,14 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import Papa from "papaparse";
 import { Trash2, Plus, CheckCircle2, AlertCircle, Upload, Download, FileText } from "lucide-react";
 import { TabToggle } from "@/components/ui/TabToggle";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/Badge";
 import { registerStudent } from "@/lib/api/students";
+import { getClassrooms } from "@/lib/api/classrooms";
 import Link from "next/link";
-
-const CLASS_OPTIONS = [
-  "4 Gemilang", "4 Bestari", "5 Amanah", "5 Zamrud", "3 Cerdas", "6 Gigih",
-];
 
 interface ManualRow {
   id: string;
@@ -45,6 +42,15 @@ function triggerDownload(filename: string, contents: string) {
 
 export default function RegisterStudentsPage() {
   const [activeTab, setActiveTab] = useState("manual");
+  const [classOptions, setClassOptions] = useState<string[]>([]);
+  const [classesLoading, setClassesLoading] = useState(true);
+
+  useEffect(() => {
+    getClassrooms()
+      .then((groups) => setClassOptions(groups.map((g) => g.name)))
+      .catch(() => setClassOptions([]))
+      .finally(() => setClassesLoading(false));
+  }, []);
 
   // Manual tab
   const [rows, setRows] = useState<ManualRow[]>([
@@ -104,11 +110,13 @@ export default function RegisterStudentsPage() {
   }
 
   function downloadTemplate() {
+    const ex1 = classOptions[0] ?? "4 Gemilang";
+    const ex2 = classOptions[1] ?? ex1;
     const csv = Papa.unparse({
       fields: ["Full Name", "IC Number", "Class Group"],
       data: [
-        ["Ahmad Danish Bin Razak", "080512101233", "4 Gemilang"],
-        ["Siti Nurhaliza Binti Abu", "081120145562", "4 Bestari"],
+        ["Ahmad Danish Bin Razak", "080512101233", ex1],
+        ["Siti Nurhaliza Binti Abu", "081120145562", ex2],
       ],
     });
     triggerDownload("engagebot_student_template.csv", csv);
@@ -243,12 +251,21 @@ export default function RegisterStudentsPage() {
                     <select
                       value={row.classGroup}
                       onChange={(e) => updateRow(row.id, "classGroup", e.target.value)}
-                      className="w-full rounded-lg border border-border px-3 py-2 text-sm bg-surface outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                      disabled={classesLoading || classOptions.length === 0}
+                      className="w-full rounded-lg border border-border px-3 py-2 text-sm bg-surface outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <option value="">Select class…</option>
-                      {CLASS_OPTIONS.map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
+                      {classesLoading ? (
+                        <option value="">Loading classes…</option>
+                      ) : classOptions.length === 0 ? (
+                        <option value="">No class groups registered yet</option>
+                      ) : (
+                        <>
+                          <option value="">Select class…</option>
+                          {classOptions.map((c) => (
+                            <option key={c} value={c}>{c}</option>
+                          ))}
+                        </>
+                      )}
                     </select>
                   </td>
                   <td className="px-3 py-2.5">

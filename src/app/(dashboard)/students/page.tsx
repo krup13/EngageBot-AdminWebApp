@@ -8,17 +8,13 @@ import { Modal } from "@/components/ui/Modal";
 import { StatusBadge } from "@/components/ui/Badge";
 import { AlertBanner } from "@/components/ui/AlertBanner";
 import { getStudents, updateStudent } from "@/lib/api/students";
+import { getClassrooms } from "@/lib/api/classrooms";
 import { Student } from "@/lib/types";
-
-const CLASS_OPTIONS = [
-  { value: "4-gemilang", label: "4 Gemilang" },
-  { value: "4-bestari", label: "4 Bestari" },
-  { value: "5-amanah", label: "5 Amanah" },
-  { value: "5-zamrud", label: "5 Zamrud" },
-];
 
 export default function StudentsPage() {
   const [students, setStudents] = useState<Student[]>([]);
+  const [classOptions, setClassOptions] = useState<string[]>([]);
+  const [classesLoading, setClassesLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [editStudent, setEditStudent] = useState<Student | null>(null);
   const [editName, setEditName] = useState("");
@@ -29,6 +25,10 @@ export default function StudentsPage() {
 
   useEffect(() => {
     getStudents().then(setStudents);
+    getClassrooms()
+      .then((groups) => setClassOptions(groups.map((g) => g.name)))
+      .catch(() => setClassOptions([]))
+      .finally(() => setClassesLoading(false));
   }, []);
 
   const filtered = students.filter((s) =>
@@ -191,11 +191,21 @@ export default function StudentsPage() {
                 <select
                   value={editClass}
                   onChange={(e) => setEditClass(e.target.value)}
-                  className="rounded-lg border border-border px-3 py-2.5 text-sm bg-surface outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                  disabled={classesLoading || classOptions.length === 0}
+                  className="rounded-lg border border-border px-3 py-2.5 text-sm bg-surface outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {CLASS_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.label}>{o.label}</option>
-                  ))}
+                  {classesLoading ? (
+                    <option value={editClass}>{editClass || "Loading…"}</option>
+                  ) : classOptions.length === 0 ? (
+                    <option value={editClass}>{editClass || "No class groups registered"}</option>
+                  ) : (
+                    <>
+                      <option value="">Select class…</option>
+                      {classOptions.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </>
+                  )}
                 </select>
               </div>
             </div>

@@ -1,7 +1,5 @@
-import { ClassSession, CreateClassSessionInput, SessionDay } from "@/lib/types";
-import { isFirebaseConfigured, readAll, create, update } from "@/lib/firestore";
-
-const COLLECTION = "classSchedules";
+import type { ClassSession, CreateClassSessionInput, SessionDay } from "@/lib/types";
+import { apiClient, isConfigured } from "@/lib/api-client";
 
 export const SESSION_COLORS: Record<string, string> = {
   Mathematics: "#DBEAFE",
@@ -16,10 +14,6 @@ export const SESSION_COLORS: Record<string, string> = {
   "P. Islam": "#ECFDF5",
 };
 
-// teacherId / teacherName reference the real teachers in MOCK_TEACHERS so that
-// the teacher filters, "today's classes", and conflict detection correlate.
-// Sessions 4 & 5 (teacher "4", Wednesday, overlapping) are an intentional
-// double-booking used to demo conflict detection / resolution.
 export const MOCK_SESSIONS: ClassSession[] = [
   { id: "1", subject: "Mathematics", teacherId: "1", teacherName: "Siti Aminah binti Yusof", classGroup: "4 Bestari", startTime: "08:00", endTime: "09:30", day: "monday", status: "ongoing", color: SESSION_COLORS["Mathematics"] },
   { id: "2", subject: "English Language", teacherId: "2", teacherName: "Robert Tan Wei Keong", classGroup: "4 Bestari", startTime: "09:30", endTime: "10:30", day: "monday", status: "scheduled", color: SESSION_COLORS["English Language"] },
@@ -34,12 +28,12 @@ export const MOCK_SESSIONS: ClassSession[] = [
 export const DAYS: SessionDay[] = ["monday", "tuesday", "wednesday", "thursday", "friday"];
 
 export async function getSessions(): Promise<ClassSession[]> {
-  if (!isFirebaseConfigured()) return MOCK_SESSIONS;
-  return readAll<ClassSession>(COLLECTION);
+  if (!isConfigured()) return MOCK_SESSIONS;
+  return apiClient.get<ClassSession[]>("/schedules");
 }
 
 export async function createSession(data: CreateClassSessionInput): Promise<ClassSession> {
-  if (!isFirebaseConfigured()) {
+  if (!isConfigured()) {
     const newSession: ClassSession = {
       ...data,
       id: String(Date.now()),
@@ -49,28 +43,18 @@ export async function createSession(data: CreateClassSessionInput): Promise<Clas
     MOCK_SESSIONS.push(newSession);
     return newSession;
   }
-
-  const fields: Omit<ClassSession, "id"> = {
-    ...data,
-    status: "scheduled",
-    color: SESSION_COLORS[data.subject] ?? "#F3F4F6",
-  };
-  return create<ClassSession>(COLLECTION, fields);
+  return apiClient.post<ClassSession>("/schedules", data);
 }
 
 export type UpdateSessionInput = Partial<
-  Pick<
-    ClassSession,
-    | "subject" | "teacherId" | "teacherName" | "classGroup"
-    | "startTime" | "endTime" | "day" | "status" | "color" | "checkedIn" | "checkInTime"
-  >
+  Pick<ClassSession, "subject" | "teacherId" | "teacherName" | "classGroup" | "startTime" | "endTime" | "day" | "status" | "color" | "checkedIn" | "checkInTime">
 >;
 
 export async function updateSession(id: string, patch: UpdateSessionInput): Promise<void> {
-  if (!isFirebaseConfigured()) {
+  if (!isConfigured()) {
     const s = MOCK_SESSIONS.find((x) => x.id === id);
     if (s) Object.assign(s, patch);
     return;
   }
-  await update<ClassSession>(COLLECTION, id, patch);
+  await apiClient.patch(`/schedules/${id}`, patch);
 }

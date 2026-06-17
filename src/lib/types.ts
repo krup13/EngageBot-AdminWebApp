@@ -1,5 +1,11 @@
 // Core entity types — will map to Firestore collections once Firebase DB is integrated
 
+export interface Subject {
+  id: string;
+  name: string;
+  description?: string;
+}
+
 // Maps to the /users/{authUid} document. Keyed by Firebase Auth UID.
 export interface AdminUser {
   uid: string;
@@ -15,6 +21,7 @@ export interface Teacher {
   name: string;
   email: string;
   department: string;
+  subjects: string[];
   assignedClasses: string[];
   dateAdded: string; // ISO date string
   status: "active" | "pending" | "inactive";
@@ -46,6 +53,10 @@ export interface ClassGroup {
   academicYear: number;
   room: string;
   droidId?: string;
+}
+
+export interface SchoolSettings {
+  recessTime: string; // e.g. "10:00" — global recess slot for all classrooms
 }
 
 export type CreateClassGroupInput = Omit<ClassGroup, "id">;
