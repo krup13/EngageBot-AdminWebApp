@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Search, MoreVertical, Download, UserPlus, CalendarClock, Pencil, Trash2, X } from "lucide-react";
+import { Search, MoreVertical, Download, UserPlus, CalendarClock, Pencil, Trash2, X, AlertCircle, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { getTeachers, updateTeacher, deleteTeacher } from "@/lib/api/teachers";
 import { getSubjects } from "@/lib/api/subjects";
-import { getSessions, DAYS } from "@/lib/api/schedules";
-import { subjectsForTeacher, freeTeachers, sessionsForTeacherToday } from "@/lib/schedule-utils";
+import { getSessions, updateSession, DAYS } from "@/lib/api/schedules";
+import { createNotification } from "@/lib/api/notifications";
+import { subjectsForTeacher, freeTeachers, sessionsForTeacherToday, planTeacherReassignment, type ReassignmentPlan } from "@/lib/schedule-utils";
 import type { Teacher, ClassSession, SessionDay, Subject } from "@/lib/types";
 // NOTE: assignedClasses is now managed automatically by the schedule — not editable here
 
@@ -35,7 +36,9 @@ export default function TeachersPage() {
 
   // Delete confirmation
   const [deleteTarget, setDeleteTarget] = useState<Teacher | null>(null);
+  const [deletePlan, setDeletePlan] = useState<ReassignmentPlan | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Today's-classes modal
   const [todayTeacher, setTodayTeacher] = useState<Teacher | null>(null);
@@ -104,13 +107,54 @@ export default function TeachersPage() {
     setEditTeacher(null);
   }
 
-  async function handleDelete() {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    await deleteTeacher(deleteTarget.id);
-    setTeachers((prev) => prev.filter((t) => t.id !== deleteTarget.id));
-    setDeleting(false);
+  function openDelete(t: Teacher) {
+    setDeleteTarget(t);
+    setDeletePlan(planTeacherReassignment(t, teachers, sessions));
+    setDeleteError(null);
+  }
+
+  function closeDelete() {
     setDeleteTarget(null);
+    setDeletePlan(null);
+    setDeleteError(null);
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget || !deletePlan) return;
+    if (deletePlan.unresolved.length > 0) return; // blocked — button isn't shown anyway
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      // Reassign each covered session to its successor and notify them (relief).
+      for (const { session, successor } of deletePlan.reassignments) {
+        await updateSession(session.id, { teacherId: successor.id, teacherName: successor.name });
+        await createNotification({
+          teacherId: successor.id,
+          type: "relief",
+          message: `You've been assigned a relief class: ${session.subject} for ${session.classGroup} on ${session.day} ${session.startTime}–${session.endTime} (covering for ${deleteTarget.name}).`,
+          sessionId: session.id,
+        });
+      }
+      await deleteTeacher(deleteTarget.id);
+      const successorBySession = new Map(deletePlan.reassignments.map((r) => [r.session.id, r.successor]));
+      setTeachers((prev) => prev.filter((t) => t.id !== deleteTarget.id));
+      setSessions((prev) =>
+        prev.map((s) => {
+          const succ = successorBySession.get(s.id);
+          return succ ? { ...s, teacherId: succ.id, teacherName: succ.name } : s;
+        }),
+      );
+      closeDelete();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to delete teacher.";
+      setDeleteError(
+        /not found|404/i.test(msg)
+          ? "The backend hasn't implemented DELETE /teachers/:id yet, so this teacher can't be deleted from the server."
+          : msg,
+      );
+    } finally {
+      setDeleting(false);
+    }
   }
 
   const inputCls = "rounded-lg border border-border px-3 py-2.5 text-sm bg-surface outline-none focus:border-primary focus:ring-1 focus:ring-primary";
@@ -220,7 +264,7 @@ export default function TeachersPage() {
                   <div className="flex items-center justify-end gap-1">
                     <button onClick={() => setTodayTeacher(t)} title="Today's classes" className="text-muted hover:text-primary p-1.5 rounded transition-colors"><CalendarClock size={16} /></button>
                     <button onClick={() => openEdit(t)} title="Edit teacher" className="text-muted hover:text-text p-1.5 rounded transition-colors"><MoreVertical size={16} /></button>
-                    <button onClick={() => setDeleteTarget(t)} title="Delete teacher" className="text-muted hover:text-error p-1.5 rounded transition-colors"><Trash2 size={16} /></button>
+                    <button onClick={() => openDelete(t)} title="Delete teacher" className="text-muted hover:text-error p-1.5 rounded transition-colors"><Trash2 size={16} /></button>
                   </div>
                 </td>
               </tr>
@@ -282,18 +326,78 @@ export default function TeachersPage() {
       </Modal>
 
       {/* Delete confirmation modal */}
-      <Modal open={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Delete Teacher" subtitle={deleteTarget?.name}>
-        {deleteTarget && (
-          <div className="flex flex-col gap-5">
-            <p className="text-sm text-text">Are you sure you want to permanently delete <strong>{deleteTarget.name}</strong>? This will remove their account and all their scheduled classes from the database. This cannot be undone.</p>
-            <div className="flex justify-end gap-3 pt-2 border-t border-border">
-              <Button variant="ghost" onClick={() => setDeleteTarget(null)}>Cancel</Button>
-              <button onClick={handleDelete} disabled={deleting} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition disabled:opacity-50">
-                <Trash2 size={14} />
-                {deleting ? "Deleting…" : "Delete Teacher"}
-              </button>
+      <Modal open={!!deleteTarget} onClose={closeDelete} title="Delete Teacher" subtitle={deleteTarget?.name}>
+        {deleteTarget && deletePlan && (
+          deletePlan.unresolved.length > 0 ? (
+            // Branch C — blocked: at least one class has no qualified, free successor.
+            <div className="flex flex-col gap-5">
+              <div className="flex items-start gap-2.5 rounded-lg border border-error-border bg-error-bg px-4 py-3">
+                <AlertCircle size={16} className="text-error mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-error">Can&#39;t delete {deleteTarget.name} yet</p>
+                  <p className="text-xs text-error mt-0.5">
+                    The class{deletePlan.unresolved.length === 1 ? "" : "es"} below {deletePlan.unresolved.length === 1 ? "has" : "have"} no qualified, available replacement teacher. Reassign or reschedule {deletePlan.unresolved.length === 1 ? "it" : "them"} on the Schedules page first, then try again.
+                  </p>
+                </div>
+              </div>
+              <ul className="flex flex-col gap-1.5 max-h-56 overflow-auto">
+                {deletePlan.unresolved.map((s) => (
+                  <li key={s.id} className="text-sm text-text rounded-lg border border-border px-3 py-2">
+                    <span className="font-medium">{s.subject}</span> · {s.classGroup} · {s.day[0].toUpperCase() + s.day.slice(1)} {s.startTime}–{s.endTime}
+                  </li>
+                ))}
+              </ul>
+              <div className="flex justify-end gap-3 pt-2 border-t border-border">
+                <Button variant="ghost" onClick={closeDelete}>Close</Button>
+                <Link href="/schedules"><Button>Go to Schedules</Button></Link>
+              </div>
             </div>
-          </div>
+          ) : deletePlan.reassignments.length === 0 ? (
+            // Branch A — no sessions: straightforward delete.
+            <div className="flex flex-col gap-5">
+              <p className="text-sm text-text">
+                <strong>{deleteTarget.name}</strong> has no scheduled classes. Deleting will permanently remove their account. This cannot be undone.
+              </p>
+              {deleteError && (
+                <p className="text-xs text-error rounded-lg border border-error-border bg-error-bg px-3 py-2">{deleteError}</p>
+              )}
+              <div className="flex justify-end gap-3 pt-2 border-t border-border">
+                <Button variant="ghost" onClick={closeDelete}>Cancel</Button>
+                <button onClick={handleDelete} disabled={deleting} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition disabled:opacity-50">
+                  <Trash2 size={14} />
+                  {deleting ? "Deleting…" : "Delete Teacher"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            // Branch B — fully reassignable: show the reassignment plan.
+            <div className="flex flex-col gap-5">
+              <p className="text-sm text-text">
+                Deleting <strong>{deleteTarget.name}</strong> will reassign their {deletePlan.reassignments.length} class{deletePlan.reassignments.length === 1 ? "" : "es"} to the teachers below (each is notified), then permanently remove the account. This cannot be undone.
+              </p>
+              <ul className="flex flex-col gap-1.5 max-h-56 overflow-auto">
+                {deletePlan.reassignments.map(({ session: s, successor }) => (
+                  <li key={s.id} className="flex items-center gap-2 text-sm text-text rounded-lg border border-border px-3 py-2">
+                    <span className="min-w-0 flex-1 truncate">
+                      <span className="font-medium">{s.subject}</span> · {s.classGroup} · {s.day[0].toUpperCase() + s.day.slice(1)} {s.startTime}–{s.endTime}
+                    </span>
+                    <ArrowRight size={14} className="text-muted shrink-0" />
+                    <span className="font-medium text-primary shrink-0">{successor.name}</span>
+                  </li>
+                ))}
+              </ul>
+              {deleteError && (
+                <p className="text-xs text-error rounded-lg border border-error-border bg-error-bg px-3 py-2">{deleteError}</p>
+              )}
+              <div className="flex justify-end gap-3 pt-2 border-t border-border">
+                <Button variant="ghost" onClick={closeDelete}>Cancel</Button>
+                <button onClick={handleDelete} disabled={deleting} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition disabled:opacity-50">
+                  <Trash2 size={14} />
+                  {deleting ? "Reassigning…" : "Reassign & Delete"}
+                </button>
+              </div>
+            </div>
+          )
         )}
       </Modal>
 

@@ -5,30 +5,75 @@ import { ChevronLeft, ChevronRight, Copy, Repeat2, Upload, Download, CheckCircle
 import { AlertBanner } from "@/components/ui/AlertBanner";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { getSessions, updateSession, DAYS, SESSION_COLORS } from "@/lib/api/schedules";
+import { getSessions, updateSession, createSession, DAYS, SESSION_COLORS } from "@/lib/api/schedules";
 import { getTeachers } from "@/lib/api/teachers";
+import { getClassrooms } from "@/lib/api/classrooms";
+import { getSubjects } from "@/lib/api/subjects";
+import { getSettings, updateSettings } from "@/lib/api/settings";
 import { createNotification } from "@/lib/api/notifications";
 import { syncSchedule } from "@/lib/api/calendar";
 import { getCalendarToken } from "@/lib/auth";
 import { findConflicts, freeTeachers, type SessionConflict } from "@/lib/schedule-utils";
-import { ClassSession, SessionDay, Teacher } from "@/lib/types";
+import { ClassSession, ClassGroup, Subject, SessionDay, Teacher } from "@/lib/types";
 
-const HOURS = Array.from({ length: 18 }, (_, i) => {
-  const h = 8 + Math.floor(i / 2);
+// Time options for the edit modal's Start/End dropdowns — a generous school-day
+// window (07:00–19:00) so any session time can be represented.
+const HOURS = Array.from({ length: 25 }, (_, i) => {
+  const h = 7 + Math.floor(i / 2);
   const m = i % 2 === 0 ? "00" : "30";
   return `${String(h).padStart(2, "0")}:${m}`;
 });
+
+// Hourly options for the recess selector.
+const RECESS_OPTIONS = ["07:00", "08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00"];
+
+// Grid geometry. One row = one 30-min slot. Session blocks are positioned by
+// the minute (top/height derived from start/end), so anything that doesn't fall
+// exactly on a half-hour still lines up with the gridlines.
+const ROW_H = 28; // px per 30-min slot — must match each gridline row's height
+const SLOT_MIN = 30;
+const DEFAULT_START_MIN = 7 * 60; // 07:00
+const DEFAULT_END_MIN = 19 * 60; // 19:00
 
 const DAY_LABELS: Record<SessionDay, string> = {
   monday: "MON", tuesday: "TUE", wednesday: "WED", thursday: "THU", friday: "FRI",
 };
 
-const ROOM_OPTIONS = ["All Rooms", "Block A - Room 101", "Block A - Room 102", "Block B - Room 201"];
-const SUBJECT_OPTIONS = ["Mathematics", "Science", "English Language", "Bahasa Melayu", "Chemistry", "Biology", "History", "Add Maths", "P. Islam"];
+const ALL_ROOMS = "all";
 
-function timeToRow(time: string): number {
+function timeToMin(time: string): number {
   const [h, m] = time.split(":").map(Number);
-  return (h - 8) * 2 + (m >= 30 ? 1 : 0);
+  return h * 60 + (Number.isFinite(m) ? m : 0);
+}
+
+function minToLabel(min: number): string {
+  return `${String(Math.floor(min / 60)).padStart(2, "0")}:00`;
+}
+
+function minToHHMM(min: number): string {
+  return `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
+}
+
+// Monday of the week containing `d` (local time, start of day).
+function startOfWeek(d: Date): Date {
+  const date = new Date(d);
+  const day = date.getDay(); // 0 Sun … 6 Sat
+  date.setDate(date.getDate() + ((day === 0 ? -6 : 1) - day));
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+// ISO 8601 week number.
+function isoWeek(d: Date): number {
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - dayNum + 3);
+  const firstThursday = new Date(Date.UTC(date.getUTCFullYear(), 0, 4));
+  return 1 + Math.round((date.getTime() - firstThursday.getTime()) / (7 * 24 * 3600 * 1000));
+}
+
+function fmtDate(d: Date): string {
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 function conflictMessage(c: SessionConflict): string {
@@ -42,7 +87,12 @@ function conflictMessage(c: SessionConflict): string {
 export default function SchedulesPage() {
   const [sessions, setSessions] = useState<ClassSession[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
-  const [room, setRoom] = useState("All Rooms");
+  const [classrooms, setClassrooms] = useState<ClassGroup[]>([]);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [room, setRoom] = useState(ALL_ROOMS);
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [recessTime, setRecessTime] = useState("");
+  const [savingRecess, setSavingRecess] = useState(false);
   const [dismissedConflicts, setDismissedConflicts] = useState<Set<string>>(new Set());
   const [resolving, setResolving] = useState<SessionConflict | null>(null);
 
@@ -54,6 +104,17 @@ export default function SchedulesPage() {
   const [editTeacher, setEditTeacher] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Add-session modal (opened by clicking an empty cell, Google-Calendar style)
+  const [addDraft, setAddDraft] = useState<{
+    day: SessionDay;
+    startTime: string;
+    endTime: string;
+    classGroup: string;
+    subject: string;
+    teacherId: string;
+  } | null>(null);
+  const [adding, setAdding] = useState(false);
+
   // Google Calendar sync
   const [syncing, setSyncing] = useState(false);
   const [calendarMsg, setCalendarMsg] = useState<string | null>(null);
@@ -62,7 +123,17 @@ export default function SchedulesPage() {
   useEffect(() => {
     getSessions().then(setSessions);
     getTeachers().then(setTeachers);
+    getClassrooms().then(setClassrooms);
+    getSubjects().then(setSubjects);
+    getSettings().then((s) => setRecessTime(s.recessTime));
   }, []);
+
+  async function handleRecessChange(value: string) {
+    setRecessTime(value);
+    setSavingRecess(true);
+    await updateSettings({ recessTime: value });
+    setSavingRecess(false);
+  }
 
   async function handleFinishEditing() {
     const token = getCalendarToken();
@@ -88,14 +159,58 @@ export default function SchedulesPage() {
   const activeConflict = conflicts.find((c) => !dismissedConflicts.has(c.a.id + c.b.id));
 
   // Teachers free for the slot being edited (excludes the session itself).
-  const availableForEdit = useMemo(() => {
+  const freeForSlot = useMemo(() => {
     if (!editSession) return teachers;
     return freeTeachers(teachers, sessions, editSession.day, editStart, editEnd, editSession.id);
   }, [editSession, teachers, sessions, editStart, editEnd]);
-  const editTeacherIsFree = availableForEdit.some((t) => t.id === editTeacher);
-  const hasConflict = !!editTeacher && !editTeacherIsFree;
+  const editTeacherIsFree = freeForSlot.some((t) => t.id === editTeacher);
+  const hasConflict = !!editTeacher && !editTeacherIsFree; // double-booking only
 
-  const visibleSessions = sessions; // room filter is display-only; all rooms by default
+  // Dropdown shows teachers who are both free in this slot AND teach the chosen
+  // subject. The currently-assigned teacher is always kept visible (flagged) so
+  // the select still reflects who is assigned, even if they no longer match.
+  const availableForEdit = useMemo(
+    () => freeForSlot.filter((t) => (t.subjects ?? []).includes(editSubject)),
+    [freeForSlot, editSubject],
+  );
+  const currentTeacher = teachers.find((t) => t.id === editTeacher);
+  const teacherOptions =
+    currentTeacher && !availableForEdit.some((t) => t.id === editTeacher)
+      ? [currentTeacher, ...availableForEdit]
+      : availableForEdit;
+
+  // Filter the grid by the selected classroom (matched on the session's classGroup).
+  const visibleSessions =
+    room === ALL_ROOMS ? sessions : sessions.filter((s) => s.classGroup === room);
+
+  // Visible time window for the grid: a default 08:00–17:00, widened to fit any
+  // session that starts earlier or ends later so nothing is clipped.
+  const { gridStartMin, rowSlots } = useMemo(() => {
+    let minStart = DEFAULT_START_MIN;
+    let maxEnd = DEFAULT_END_MIN;
+    for (const s of sessions) {
+      const st = timeToMin(s.startTime);
+      const en = timeToMin(s.endTime);
+      if (Number.isFinite(st)) minStart = Math.min(minStart, st);
+      if (Number.isFinite(en)) maxEnd = Math.max(maxEnd, en);
+    }
+    const start = Math.floor(minStart / 60) * 60; // pad down to the hour
+    const end = Math.ceil(maxEnd / 60) * 60; // pad up to the hour
+    return { gridStartMin: start, rowSlots: Math.max((end - start) / SLOT_MIN, 1) };
+  }, [sessions]);
+  const gridRows = Array.from({ length: rowSlots }, (_, i) => gridStartMin + i * SLOT_MIN);
+
+  // Week navigation. Sessions are a weekly-recurring template (keyed by weekday),
+  // so changing weeks shifts the displayed Mon–Fri date range; the grid content
+  // is the same each week.
+  const weekStart = useMemo(() => {
+    const d = startOfWeek(new Date());
+    d.setDate(d.getDate() + weekOffset * 7);
+    return d;
+  }, [weekOffset]);
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekStart.getDate() + 4); // Friday
+  const weekLabel = `Week ${isoWeek(weekStart)} (${fmtDate(weekStart)} – ${fmtDate(weekEnd)})`;
 
   function openEdit(session: ClassSession) {
     setEditSession(session);
@@ -123,6 +238,54 @@ export default function SchedulesPage() {
     setEditSession(null);
   }
 
+  // Open the add modal pre-filled with the clicked weekday + time (a 1-hour slot).
+  function openAdd(day: SessionDay, startMin: number) {
+    setAddDraft({
+      day,
+      startTime: minToHHMM(startMin),
+      endTime: minToHHMM(startMin + 60),
+      classGroup: room === ALL_ROOMS ? "" : room,
+      subject: "",
+      teacherId: "",
+    });
+  }
+
+  function patchDraft(patch: Partial<NonNullable<typeof addDraft>>) {
+    setAddDraft((prev) => (prev ? { ...prev, ...patch } : prev));
+  }
+
+  async function handleAddSave() {
+    if (!addDraft) return;
+    const teacher = teachers.find((t) => t.id === addDraft.teacherId);
+    const created = await (async () => {
+      setAdding(true);
+      try {
+        return await createSession({
+          subject: addDraft.subject,
+          teacherId: addDraft.teacherId,
+          teacherName: teacher?.name ?? "",
+          classGroup: addDraft.classGroup,
+          startTime: addDraft.startTime,
+          endTime: addDraft.endTime,
+          day: addDraft.day,
+          color: SESSION_COLORS[addDraft.subject] ?? "#F3F4F6",
+        });
+      } finally {
+        setAdding(false);
+      }
+    })();
+    setSessions((prev) => [...prev, created]);
+    setAddDraft(null);
+  }
+
+  // Teachers who teach the draft's subject AND are free in the draft's slot.
+  const addAvailableTeachers = useMemo(() => {
+    if (!addDraft) return [];
+    return freeTeachers(teachers, sessions, addDraft.day, addDraft.startTime, addDraft.endTime).filter(
+      (t) => (t.subjects ?? []).includes(addDraft.subject),
+    );
+  }, [addDraft, teachers, sessions]);
+
   // Reassign one side of a conflict to a free teacher + notify them (relief).
   async function reassign(conflict: SessionConflict, teacher: Teacher) {
     const target = conflict.b; // reassign the second session
@@ -145,17 +308,34 @@ export default function SchedulesPage() {
       {/* Toolbar */}
       <div className="bg-surface border-b border-border px-6 py-3 flex items-center gap-4 flex-wrap shrink-0">
         <select value={room} onChange={(e) => setRoom(e.target.value)} className="rounded-lg border border-border px-3 py-2 text-sm bg-surface outline-none focus:border-primary">
-          {ROOM_OPTIONS.map((r) => (
-            <option key={r} value={r}>{r}</option>
+          <option value={ALL_ROOMS}>All Classrooms</option>
+          {classrooms.map((c) => (
+            <option key={c.id} value={c.name}>
+              {c.name}
+            </option>
           ))}
         </select>
 
         <div className="flex items-center gap-2 ml-2">
-          <button className="p-1.5 rounded-lg border border-border text-muted hover:text-text hover:bg-subtle">
+          <button
+            onClick={() => setWeekOffset((w) => w - 1)}
+            aria-label="Previous week"
+            className="p-1.5 rounded-lg border border-border text-muted hover:text-text hover:bg-subtle"
+          >
             <ChevronLeft size={16} />
           </button>
-          <span className="text-sm font-medium text-text px-2">Week 12 (Mar 23 – Mar 27)</span>
-          <button className="p-1.5 rounded-lg border border-border text-muted hover:text-text hover:bg-subtle">
+          <button
+            onClick={() => setWeekOffset(0)}
+            title={weekOffset === 0 ? "Current week" : "Jump to current week"}
+            className="text-sm font-medium text-text px-2 hover:text-primary transition-colors"
+          >
+            {weekLabel}
+          </button>
+          <button
+            onClick={() => setWeekOffset((w) => w + 1)}
+            aria-label="Next week"
+            className="p-1.5 rounded-lg border border-border text-muted hover:text-text hover:bg-subtle"
+          >
             <ChevronRight size={16} />
           </button>
         </div>
@@ -176,6 +356,30 @@ export default function SchedulesPage() {
             <CheckCircle size={14} />
             Finish Editing →
           </Button>
+        </div>
+      </div>
+
+      {/* Global recess time — applies to all classrooms */}
+      <div className="px-6 pt-3 shrink-0">
+        <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-5 py-3 flex-wrap">
+          <span className="text-sm font-semibold text-amber-700 whitespace-nowrap">☕ School Recess Time:</span>
+          <select
+            value={recessTime}
+            onChange={(e) => handleRecessChange(e.target.value)}
+            className="text-sm border border-amber-200 rounded-lg px-3 py-1.5 bg-white text-amber-800 outline-none focus:border-amber-400"
+          >
+            <option value="">None</option>
+            {RECESS_OPTIONS.map((h) => (
+              <option key={h} value={h}>{h} – {minToHHMM(timeToMin(h) + 60)}</option>
+            ))}
+          </select>
+          <span className="text-xs text-amber-600">
+            {savingRecess
+              ? "Saving…"
+              : recessTime
+                ? `Recess is set to ${recessTime}–${minToHHMM(timeToMin(recessTime) + 60)} for all classrooms.`
+                : "No recess time set."}
+          </span>
         </div>
       </div>
 
@@ -223,24 +427,49 @@ export default function SchedulesPage() {
           </div>
 
           <div className="relative">
-            {HOURS.map((time) => (
-              <div key={time} className="grid grid-cols-[56px_repeat(5,1fr)] border-b border-border/50">
-                <div className="py-1 pr-2 text-right text-xs text-muted self-start pt-1.5">
-                  {time.endsWith("00") ? time : ""}
+            {gridRows.map((rowMin) => (
+              <div
+                key={rowMin}
+                className="grid grid-cols-[56px_repeat(5,1fr)] border-b border-border/50"
+                style={{ height: ROW_H }}
+              >
+                <div className="pr-2 text-right text-xs text-muted self-start pt-1">
+                  {rowMin % 60 === 0 ? minToLabel(rowMin) : ""}
                 </div>
                 {DAYS.map((day) => (
-                  <div key={day} className="border-l border-border/50 min-h-[28px] relative" />
+                  <div
+                    key={day}
+                    onClick={() => openAdd(day, rowMin)}
+                    title={`Add a class on ${DAY_LABELS[day]} at ${minToHHMM(rowMin)}`}
+                    className="border-l border-border/50 relative cursor-pointer hover:bg-primary-light/40 transition-colors"
+                  />
                 ))}
               </div>
             ))}
 
+            {/* Recess band — spans all day columns at the recess hour */}
+            {recessTime && Number.isFinite(timeToMin(recessTime)) && (
+              <div
+                className="absolute pointer-events-none flex items-center justify-center border-y border-dashed border-amber-300"
+                style={{
+                  top: ((timeToMin(recessTime) - gridStartMin) / SLOT_MIN) * ROW_H,
+                  height: ROW_H * 2,
+                  left: 56,
+                  right: 0,
+                  backgroundColor: "rgba(245, 158, 11, 0.12)",
+                }}
+              >
+                <span className="text-[11px] font-semibold text-amber-600">☕ RECESS</span>
+              </div>
+            )}
+
             {visibleSessions.map((session) => {
-              const startRow = timeToRow(session.startTime);
-              const endRow = timeToRow(session.endTime);
+              const startMin = timeToMin(session.startTime);
+              const endMin = timeToMin(session.endTime);
               const dayIdx = DAYS.indexOf(session.day);
-              if (dayIdx === -1) return null;
-              const topPx = startRow * 28;
-              const heightPx = (endRow - startRow) * 28;
+              if (dayIdx === -1 || !Number.isFinite(startMin) || !Number.isFinite(endMin)) return null;
+              const topPx = ((startMin - gridStartMin) / SLOT_MIN) * ROW_H;
+              const heightPx = ((endMin - startMin) / SLOT_MIN) * ROW_H;
 
               return (
                 <div
@@ -311,7 +540,11 @@ export default function SchedulesPage() {
             <div className="flex flex-col gap-1">
               <label className="text-sm font-medium text-text">Subject</label>
               <select value={editSubject} onChange={(e) => setEditSubject(e.target.value)} className={selectCls}>
-                {SUBJECT_OPTIONS.map((s) => <option key={s}>{s}</option>)}
+                {/* Keep the session's current subject selectable even if it's not in the list. */}
+                {editSubject && !subjects.some((s) => s.name === editSubject) && (
+                  <option value={editSubject}>{editSubject}</option>
+                )}
+                {subjects.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
               </select>
             </div>
 
@@ -322,15 +555,23 @@ export default function SchedulesPage() {
                 onChange={(e) => setEditTeacher(e.target.value)}
                 className={`w-full rounded-lg border px-3 py-2.5 text-sm bg-surface outline-none focus:ring-1 ${hasConflict ? "border-error focus:ring-error text-error" : "border-border focus:border-primary focus:ring-primary"}`}
               >
-                {teachers.map((t) => {
-                  const free = availableForEdit.some((f) => f.id === t.id);
+                {teacherOptions.length === 0 && (
+                  <option value="" disabled>No teacher teaches {editSubject} and is free in this slot</option>
+                )}
+                {teacherOptions.map((t) => {
+                  const free = freeForSlot.some((f) => f.id === t.id);
+                  const teaches = (t.subjects ?? []).includes(editSubject);
+                  const note = !free ? " — busy (current)" : !teaches ? ` — doesn't teach ${editSubject} (current)` : "";
                   return (
                     <option key={t.id} value={t.id}>
-                      {t.name}{free ? "" : " — busy"}
+                      {t.name}{note}
                     </option>
                   );
                 })}
               </select>
+              <p className="text-xs text-muted">
+                Only teachers who teach {editSubject} and are free during {editStart}–{editEnd} on {DAY_LABELS[editSession.day]} are listed.
+              </p>
             </div>
 
             <div className="flex justify-end gap-3 pt-2 border-t border-border">
@@ -339,6 +580,98 @@ export default function SchedulesPage() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Add Class Session Modal */}
+      <Modal
+        open={!!addDraft}
+        onClose={() => setAddDraft(null)}
+        title="Add Class Session"
+        subtitle={addDraft ? `New block on ${DAY_LABELS[addDraft.day]} at ${addDraft.startTime}.` : undefined}
+      >
+        {addDraft && (() => {
+          const endAfterStart = timeToMin(addDraft.endTime) > timeToMin(addDraft.startTime);
+          const valid =
+            !!addDraft.classGroup && !!addDraft.subject && !!addDraft.teacherId && endAfterStart;
+          return (
+            <div className="flex flex-col gap-5">
+              <div className="flex flex-col gap-1">
+                <label className="text-sm font-medium text-text">Classroom</label>
+                <select
+                  value={addDraft.classGroup}
+                  onChange={(e) => patchDraft({ classGroup: e.target.value })}
+                  className={selectCls}
+                >
+                  <option value="" disabled>Select a classroom</option>
+                  {classrooms.map((c) => (
+                    <option key={c.id} value={c.name}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-medium text-text">Start Time</label>
+                  <select value={addDraft.startTime} onChange={(e) => patchDraft({ startTime: e.target.value })} className={selectCls}>
+                    {HOURS.map((h) => <option key={h}>{h}</option>)}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-medium text-text">End Time</label>
+                  <select value={addDraft.endTime} onChange={(e) => patchDraft({ endTime: e.target.value })} className={selectCls}>
+                    {HOURS.map((h) => <option key={h}>{h}</option>)}
+                  </select>
+                </div>
+              </div>
+              {!endAfterStart && (
+                <p className="text-xs text-error -mt-3">End time must be after the start time.</p>
+              )}
+
+              <div className="flex flex-col gap-1">
+                <label className="text-sm font-medium text-text">Subject</label>
+                <select
+                  value={addDraft.subject}
+                  onChange={(e) => patchDraft({ subject: e.target.value, teacherId: "" })}
+                  className={selectCls}
+                >
+                  <option value="" disabled>Select a subject</option>
+                  {subjects.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-sm font-medium text-text">Assigned Teacher</label>
+                <select
+                  value={addDraft.teacherId}
+                  onChange={(e) => patchDraft({ teacherId: e.target.value })}
+                  disabled={!addDraft.subject}
+                  className={`${selectCls} disabled:opacity-50 disabled:cursor-not-allowed`}
+                >
+                  <option value="" disabled>
+                    {!addDraft.subject
+                      ? "Pick a subject first"
+                      : addAvailableTeachers.length === 0
+                        ? `No teacher teaches ${addDraft.subject} and is free in this slot`
+                        : "Select a teacher"}
+                  </option>
+                  {addAvailableTeachers.map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+                {addDraft.subject && (
+                  <p className="text-xs text-muted">
+                    Only teachers who teach {addDraft.subject} and are free during {addDraft.startTime}–{addDraft.endTime} on {DAY_LABELS[addDraft.day]} are listed.
+                  </p>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2 border-t border-border">
+                <Button variant="ghost" onClick={() => setAddDraft(null)}>Cancel</Button>
+                <Button onClick={handleAddSave} loading={adding} disabled={!valid}>Add Session</Button>
+              </div>
+            </div>
+          );
+        })()}
       </Modal>
 
       {/* Resolve Conflict Modal */}

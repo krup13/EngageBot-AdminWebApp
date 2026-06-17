@@ -45,7 +45,8 @@ export default function DashboardPage() {
   const today = dayOf(new Date());
   const todayFiltered = today ? sessions.filter((s) => s.day === today) : sessions;
   // Fall back to all sessions if today's weekday has none, so the dashboard never looks empty.
-  const todaySessions = (todayFiltered.length ? todayFiltered : sessions).slice(0, 6);
+  const timelineSessions = todayFiltered.length ? todayFiltered : sessions;
+  const todaySessions = timelineSessions.slice(0, 6);
   const activeDroids = droids.filter((d) => d.status === "active").length;
   const offlineDroids = droids.filter((d) => d.status === "offline").length;
 
@@ -74,7 +75,7 @@ export default function DashboardPage() {
       <div className="flex items-start justify-between mb-6">
         <div>
           <h2 className="text-2xl font-bold text-text">Welcome back, {firstName}.</h2>
-          <p className="text-sm text-muted mt-1">SMK Taman Melawati • Thursday, 12 March 2026</p>
+          <p className="text-sm text-muted mt-1">SMK Bandar Kinrara 4 • Thursday, 12 March 2026</p>
         </div>
         <div className="flex gap-3">
           <Button variant="secondary" size="sm">Export Report</Button>
@@ -139,7 +140,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Schedule timeline */}
-      <ScheduleTimeline />
+      <ScheduleTimeline sessions={timelineSessions} />
     </div>
   );
 }

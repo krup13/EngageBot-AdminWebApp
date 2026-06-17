@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import Papa from "papaparse";
+import * as XLSX from "xlsx";
 import { Trash2, Plus, CheckCircle2, AlertCircle, Upload, Download, FileText } from "lucide-react";
 import { TabToggle } from "@/components/ui/TabToggle";
 import { Button } from "@/components/ui/Button";
@@ -122,25 +123,49 @@ export default function RegisterStudentsPage() {
     triggerDownload("engagebot_student_template.csv", csv);
   }
 
+  // Map raw header-keyed rows (from CSV or Excel) into validated ParsedRows.
+  function mapRows(data: Record<string, unknown>[]): ParsedRow[] {
+    return data.map((row) => {
+      const name = String(row["Full Name"] ?? row["name"] ?? "").trim();
+      const ic = String(row["IC Number"] ?? row["ic"] ?? "").trim();
+      const classGroup = String(row["Class Group"] ?? row["classGroup"] ?? "").trim();
+      let error: string | undefined;
+      if (!name) error = "Missing name";
+      else if (!validateIC(ic)) error = "Invalid IC";
+      else if (!classGroup) error = "Missing class";
+      return { name, ic, classGroup, valid: !error, error };
+    });
+  }
+
   function parseFile(file: File) {
     setCsvFileName(file.name);
     setCsvDone(null);
-    Papa.parse<Record<string, string>>(file, {
+
+    // Excel workbooks (.xlsx/.xls) are read with the xlsx library; plain CSV
+    // uses PapaParse. raw:false keeps cells as their displayed text so IC
+    // numbers stored as text (with leading zeros) survive intact.
+    if (/\.(xlsx|xls)$/i.test(file.name)) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const wb = XLSX.read(new Uint8Array(e.target?.result as ArrayBuffer), { type: "array" });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const json = sheet
+            ? XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "", raw: false })
+            : [];
+          setCsvRows(mapRows(json));
+        } catch {
+          setCsvRows([]);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      return;
+    }
+
+    Papa.parse<Record<string, unknown>>(file, {
       header: true,
       skipEmptyLines: true,
-      complete: (res) => {
-        const parsed: ParsedRow[] = res.data.map((row) => {
-          const name = (row["Full Name"] ?? row["name"] ?? "").trim();
-          const ic = (row["IC Number"] ?? row["ic"] ?? "").trim();
-          const classGroup = (row["Class Group"] ?? row["classGroup"] ?? "").trim();
-          let error: string | undefined;
-          if (!name) error = "Missing name";
-          else if (!validateIC(ic)) error = "Invalid IC";
-          else if (!classGroup) error = "Missing class";
-          return { name, ic, classGroup, valid: !error, error };
-        });
-        setCsvRows(parsed);
-      },
+      complete: (res) => setCsvRows(mapRows(res.data)),
     });
   }
 
@@ -341,16 +366,19 @@ export default function RegisterStudentsPage() {
             </div>
             <div>
               <p className="text-sm font-semibold text-text">
-                {csvFileName || "Drop CSV file here or click to upload"}
+                {csvFileName || "Drop CSV or Excel file here or click to upload"}
               </p>
-              <p className="text-xs text-muted mt-1">Your file is parsed in the browser. .csv format following the template.</p>
+              <p className="text-xs text-muted mt-1">Parsed in the browser. Accepts .csv or Excel (.xlsx / .xls) following the template.</p>
             </div>
             <input
               ref={fileInputRef}
               type="file"
-              accept=".csv"
+              accept=".csv,.xlsx,.xls"
               className="hidden"
-              onChange={(e) => { if (e.target.files?.[0]) parseFile(e.target.files[0]); }}
+              onChange={(e) => {
+                if (e.target.files?.[0]) parseFile(e.target.files[0]);
+                e.target.value = ""; // allow re-selecting the same filename
+              }}
             />
             <Button variant="primary" size="sm" onClick={() => fileInputRef.current?.click()}>
               Choose File

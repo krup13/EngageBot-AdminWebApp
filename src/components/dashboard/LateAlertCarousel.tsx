@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { AlertBanner } from "@/components/ui/AlertBanner";
-import { apiClient, isConfigured } from "@/lib/api-client";
+import { apiClient } from "@/lib/api-client";
 import { isLate, dayOf } from "@/lib/schedule-utils";
 import type { ClassSession } from "@/lib/types";
 
@@ -12,10 +12,6 @@ interface LateEntry {
   classGroup: string;
   subject: string;
   startTime: string;
-}
-
-function hhmm(d: Date): string {
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
 async function fetchLateEntries(): Promise<LateEntry[]> {
@@ -37,10 +33,6 @@ async function fetchLateEntries(): Promise<LateEntry[]> {
 /**
  * Dashboard alert for teachers who are late to class. Polls the API every 30s
  * so the list stays fresh as teachers check in via the droid.
- *
- * In mock mode (API not configured), synthesizes a couple of late sessions and
- * simulates one teacher checking in after ~18s so the carousel behaviour is
- * visible during development.
  */
 export function LateAlertCarousel() {
   const [late, setLate] = useState<LateEntry[]>([]);
@@ -48,19 +40,6 @@ export function LateAlertCarousel() {
 
   // ── Source the late list ────────────────────────────────────────────────────
   useEffect(() => {
-    if (!isConfigured()) {
-      const now = new Date();
-      const start = new Date(now.getTime() - 10 * 60 * 1000);
-      const seed: LateEntry[] = [
-        { id: "late-1", teacherName: "Robert Tan Wei Keong", classGroup: "4 Bestari", subject: "English Language", startTime: hhmm(start) },
-        { id: "late-2", teacherName: "Ahmad Faizal Bin Kassim", classGroup: "4A", subject: "History", startTime: hhmm(start) },
-        { id: "late-3", teacherName: "Mohd Ridzuan bin Ismail", classGroup: "5C", subject: "P. Islam", startTime: hhmm(start) },
-      ];
-      setLate(seed);
-      const t = setTimeout(() => setLate((prev) => prev.filter((e) => e.id !== "late-2")), 18000);
-      return () => clearTimeout(t);
-    }
-
     // Poll the API every 30 seconds for fresh late-teacher data.
     let active = true;
     async function poll() {

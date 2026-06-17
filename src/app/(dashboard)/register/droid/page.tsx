@@ -1,26 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Cpu, ChevronRight, CheckCircle2 } from "lucide-react";
-import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
 import { registerDroid } from "@/lib/api/droids";
-import { Droid } from "@/lib/types";
-
-const ROOM_OPTIONS = [
-  { value: "4-bestari", label: "4 Bestari" },
-  { value: "5-amanah", label: "5 Amanah" },
-  { value: "3-cerdas", label: "3 Cerdas" },
-  { value: "6-gemilang", label: "6 Gemilang" },
-  { value: "lab-a", label: "Lab A" },
-  { value: "lab-b", label: "Lab B" },
-  { value: "hall-1", label: "Hall 1" },
-  { value: "library", label: "Library" },
-];
+import { getClassrooms } from "@/lib/api/classrooms";
+import { ClassGroup, Droid } from "@/lib/types";
 
 export default function RegisterDroidPage() {
+  const [classrooms, setClassrooms] = useState<ClassGroup[]>([]);
+  const roomOptions = classrooms.map((c) => ({
+    value: c.name,
+    label: c.name,
+  }));
+
+  useEffect(() => {
+    getClassrooms().then(setClassrooms);
+  }, []);
+
   const [step, setStep] = useState(1);
   const [serial, setSerial] = useState("");
   const [room, setRoom] = useState("");
@@ -106,8 +105,8 @@ export default function RegisterDroidPage() {
 
             <Select
               label="Assigned Room / Class Group"
-              options={ROOM_OPTIONS}
-              placeholder="Select Classroom"
+              options={roomOptions}
+              placeholder={classrooms.length === 0 ? "No class groups — create one first" : "Select Classroom"}
               value={room}
               onChange={(e) => setRoom(e.target.value)}
               error={errors.room}
@@ -155,7 +154,7 @@ export default function RegisterDroidPage() {
           <div className="flex flex-col gap-4 bg-subtle rounded-xl border border-border p-5">
             {[
               ["Serial Number", serial],
-              ["Assigned Room", ROOM_OPTIONS.find((o) => o.value === room)?.label ?? room],
+              ["Assigned Room", roomOptions.find((o) => o.value === room)?.label ?? room],
               ["Firmware Version", firmware || "Not specified"],
               ["Last Seen Status", "Waiting for first ping…"],
               ...(notes ? [["Deployment Notes", notes]] : []),

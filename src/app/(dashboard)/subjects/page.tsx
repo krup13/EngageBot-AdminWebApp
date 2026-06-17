@@ -1,15 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Trash2, Plus, BookOpen } from "lucide-react";
+import { Trash2, Plus, BookOpen, ChevronDown, Users } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Input } from "@/components/ui/Input";
 import { getSubjects, createSubject, deleteSubject } from "@/lib/api/subjects";
-import type { Subject } from "@/lib/types";
+import { getTeachers } from "@/lib/api/teachers";
+import type { Subject, Teacher } from "@/lib/types";
 
 export default function SubjectsPage() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -17,9 +19,20 @@ export default function SubjectsPage() {
   const [nameError, setNameError] = useState("");
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  function toggleExpanded(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   useEffect(() => {
     getSubjects().then(setSubjects).finally(() => setLoading(false));
+    getTeachers().then(setTeachers);
   }, []);
 
   async function handleAdd() {
@@ -70,25 +83,66 @@ export default function SubjectsPage() {
         </div>
       ) : (
         <div className="bg-surface rounded-xl border border-border divide-y divide-border">
-          {subjects.map((s) => (
-            <div key={s.id} className="flex items-center gap-4 px-5 py-4">
-              <div className="w-9 h-9 rounded-lg bg-primary-light flex items-center justify-center shrink-0">
-                <BookOpen size={17} className="text-primary" />
+          {subjects.map((s) => {
+            const teaching = teachers.filter((t) => (t.subjects ?? []).includes(s.name));
+            const isOpen = expanded.has(s.id);
+            return (
+            <div key={s.id} className="px-5 py-4">
+              <div className="flex items-center gap-4">
+                <div className="w-9 h-9 rounded-lg bg-primary-light flex items-center justify-center shrink-0">
+                  <BookOpen size={17} className="text-primary" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-text">{s.name}</p>
+                  {s.description && <p className="text-xs text-muted mt-0.5">{s.description}</p>}
+                </div>
+
+                {/* Teachers dropdown toggle */}
+                <button
+                  onClick={() => toggleExpanded(s.id)}
+                  aria-expanded={isOpen}
+                  className="flex items-center gap-1.5 text-xs font-medium text-text border border-border rounded-lg px-3 py-1.5 hover:bg-subtle transition-colors shrink-0"
+                >
+                  <Users size={13} className="text-muted" />
+                  {teaching.length} teacher{teaching.length === 1 ? "" : "s"}
+                  <ChevronDown size={14} className={`text-muted transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                </button>
+
+                <button
+                  onClick={() => handleDelete(s.id)}
+                  disabled={deletingId === s.id}
+                  className="text-muted hover:text-error transition-colors p-1.5 rounded disabled:opacity-40"
+                  title="Delete subject"
+                >
+                  <Trash2 size={15} />
+                </button>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-text">{s.name}</p>
-                {s.description && <p className="text-xs text-muted mt-0.5">{s.description}</p>}
-              </div>
-              <button
-                onClick={() => handleDelete(s.id)}
-                disabled={deletingId === s.id}
-                className="text-muted hover:text-error transition-colors p-1.5 rounded disabled:opacity-40"
-                title="Delete subject"
-              >
-                <Trash2 size={15} />
-              </button>
+
+              {/* Expanded teacher list */}
+              {isOpen && (
+                <div className="mt-3 ml-[52px]">
+                  {teaching.length > 0 ? (
+                    <ul className="flex flex-col gap-1.5 rounded-lg border border-border bg-subtle p-3">
+                      {teaching.map((t) => (
+                        <li key={t.id} className="flex items-center gap-2 text-sm text-text">
+                          <span className="w-6 h-6 rounded-full bg-primary-light flex items-center justify-center text-[10px] font-bold text-primary shrink-0">
+                            {t.name.charAt(0)}
+                          </span>
+                          <span className="truncate">{t.name}</span>
+                          {t.department && <span className="text-xs text-muted truncate">· {t.department}</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-xs text-muted italic rounded-lg border border-border bg-subtle p-3">
+                      No teachers assigned to this subject yet.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

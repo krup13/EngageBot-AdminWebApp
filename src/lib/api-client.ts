@@ -16,10 +16,6 @@ export function clearToken() {
   localStorage.removeItem('engagebot_token');
 }
 
-export function isConfigured(): boolean {
-  return Boolean(process.env.NEXT_PUBLIC_API_URL);
-}
-
 async function request<T>(
   method: string,
   path: string,

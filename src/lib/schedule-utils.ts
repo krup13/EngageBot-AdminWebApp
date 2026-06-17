@@ -104,3 +104,61 @@ export function isLate(session: ClassSession, now: Date, graceMin = 5): boolean 
   const nowMin = now.getHours() * 60 + now.getMinutes();
   return nowMin >= toMinutes(session.startTime) + graceMin;
 }
+
+export interface ReassignmentItem {
+  session: ClassSession;
+  successor: Teacher;
+}
+
+export interface ReassignmentPlan {
+  reassignments: ReassignmentItem[];
+  unresolved: ClassSession[];
+}
+
+/**
+ * Plans how a deleted teacher's sessions would be covered. For each session
+ * (in weekday/time order) it picks the first other teacher who teaches that
+ * subject AND is free in the slot. A working copy of the schedule is mutated as
+ * assignments are made, so two overlapping sessions can't be given to the same
+ * successor. Sessions with no candidate land in `unresolved` — callers should
+ * treat a non-empty `unresolved` as "block the delete".
+ */
+export function planTeacherReassignment(
+  deletedTeacher: Teacher,
+  allTeachers: Teacher[],
+  allSessions: ClassSession[],
+): ReassignmentPlan {
+  const isDeleted = (id: string) => id === deletedTeacher.id || id === deletedTeacher.employeeId;
+
+  const mine = allSessions.filter((s) => isDeleted(s.teacherId));
+  if (mine.length === 0) return { reassignments: [], unresolved: [] };
+
+  const candidatesPool = allTeachers.filter((t) => !isDeleted(t.id));
+  const work = allSessions.map((s) => ({ ...s }));
+  const ordered = [...mine].sort(
+    (a, b) =>
+      DAY_INDEX.indexOf(a.day) - DAY_INDEX.indexOf(b.day) ||
+      toMinutes(a.startTime) - toMinutes(b.startTime),
+  );
+
+  const reassignments: ReassignmentItem[] = [];
+  const unresolved: ClassSession[] = [];
+
+  for (const session of ordered) {
+    const free = freeTeachers(candidatesPool, work, session.day, session.startTime, session.endTime, session.id);
+    const successor = free.find((t) => (t.subjects ?? []).includes(session.subject));
+    if (successor) {
+      reassignments.push({ session, successor });
+      // Mark the successor busy in this slot for subsequent iterations.
+      const w = work.find((x) => x.id === session.id);
+      if (w) {
+        w.teacherId = successor.id;
+        w.teacherName = successor.name;
+      }
+    } else {
+      unresolved.push(session);
+    }
+  }
+
+  return { reassignments, unresolved };
+}
