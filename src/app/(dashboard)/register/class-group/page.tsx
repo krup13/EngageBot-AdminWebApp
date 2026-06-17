@@ -1,24 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Building2, HelpCircle } from "lucide-react";
 import { Input } from "@/components/ui/Input";
-import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
-import { registerClassGroup } from "@/lib/api/classrooms";
-
-const ROOM_OPTIONS = [
-  { value: "block-a-101", label: "Block A - Room 101" },
-  { value: "block-a-102", label: "Block A - Room 102" },
-  { value: "block-b-201", label: "Block B - Room 201" },
-  { value: "block-b-202", label: "Block B - Room 202" },
-  { value: "block-c-301", label: "Block C - Room 301" },
-  { value: "lab-a", label: "Science Wing - Lab A" },
-  { value: "lab-b", label: "Science Wing - Lab B" },
-  { value: "hall-1", label: "Main Hall" },
-  { value: "library", label: "Library" },
-];
+import { registerClassGroup, getClassrooms } from "@/lib/api/classrooms";
 
 export default function RegisterClassGroupPage() {
   const [year] = useState("2026");
@@ -27,6 +14,16 @@ export default function RegisterClassGroupPage() {
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<{ room?: string; className?: string }>({});
+
+  // Suggest rooms already used by existing classrooms, but allow free text for
+  // new rooms (there is no separate rooms collection — room is a field on each
+  // class group).
+  const [roomSuggestions, setRoomSuggestions] = useState<string[]>([]);
+  useEffect(() => {
+    getClassrooms().then((groups) => {
+      setRoomSuggestions([...new Set(groups.map((g) => g.room).filter(Boolean))]);
+    });
+  }, []);
 
   function validate() {
     const e: typeof errors = {};
@@ -91,15 +88,20 @@ export default function RegisterClassGroupPage() {
           <p className="text-xs text-muted">Year must be the current or upcoming academic year.</p>
         </div>
 
-        <Select
+        <Input
           label="Allocated Room / Space"
-          options={ROOM_OPTIONS}
-          placeholder="Select a classroom or facility"
+          placeholder="e.g. Block A - Room 101, Science Wing - Lab A"
+          list="room-suggestions"
           value={room}
           onChange={(e) => setRoom(e.target.value)}
           error={errors.room}
-          hint="Physical location where the Droid device is installed."
+          hint="Physical location where the Droid device is installed. Pick an existing room or type a new one."
         />
+        <datalist id="room-suggestions">
+          {roomSuggestions.map((r) => (
+            <option key={r} value={r} />
+          ))}
+        </datalist>
 
         <Input
           label="Class Name"
