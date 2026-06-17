@@ -1,7 +1,5 @@
-import { Droid, CreateDroidInput } from "@/lib/types";
-import { isFirebaseConfigured, readAll, create, nextSequence } from "@/lib/firestore";
-
-const COLLECTION = "droids";
+import type { Droid, CreateDroidInput } from "@/lib/types";
+import { apiClient, isConfigured } from "@/lib/api-client";
 
 export const MOCK_DROIDS: Droid[] = [
   { id: "1", droidId: "DRD-001", serialNumber: "EB-9921-X1", assignedRoom: "4 Bestari", firmware: "v2.1.4", battery: 92, lastPing: "2 mins ago", status: "active" },
@@ -23,12 +21,12 @@ export const SIDEBAR_DROIDS = MOCK_DROIDS.slice(0, 5).map((d) => ({
 }));
 
 export async function getDroids(): Promise<Droid[]> {
-  if (!isFirebaseConfigured()) return MOCK_DROIDS;
-  return readAll<Droid>(COLLECTION);
+  if (!isConfigured()) return MOCK_DROIDS;
+  return apiClient.get<Droid[]>("/droids");
 }
 
 export async function registerDroid(data: CreateDroidInput): Promise<Droid> {
-  if (!isFirebaseConfigured()) {
+  if (!isConfigured()) {
     const newDroid: Droid = {
       ...data,
       id: String(Date.now()),
@@ -40,14 +38,5 @@ export async function registerDroid(data: CreateDroidInput): Promise<Droid> {
     MOCK_DROIDS.push(newDroid);
     return newDroid;
   }
-
-  const seq = await nextSequence(COLLECTION);
-  const fields: Omit<Droid, "id"> = {
-    ...data,
-    droidId: `DRD-${String(seq).padStart(3, "0")}`,
-    battery: 0,
-    lastPing: "Waiting for first ping…",
-    status: "inactive",
-  };
-  return create<Droid>(COLLECTION, fields);
+  return apiClient.post<Droid>("/droids", data);
 }

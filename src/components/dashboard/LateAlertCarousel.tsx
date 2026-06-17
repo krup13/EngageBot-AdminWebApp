@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { AlertBanner } from "@/components/ui/AlertBanner";
-import { db, isFirebaseConfigured } from "@/lib/firebase";
+import { apiClient, isConfigured } from "@/lib/api-client";
 import { isLate, dayOf } from "@/lib/schedule-utils";
 import type { ClassSession } from "@/lib/types";
 
@@ -18,15 +18,29 @@ function hhmm(d: Date): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
+async function fetchLateEntries(): Promise<LateEntry[]> {
+  const today = dayOf(new Date());
+  if (!today) return [];
+  const sessions = await apiClient.get<ClassSession[]>(`/schedules?day=${today}`);
+  const now = new Date();
+  return sessions
+    .filter((s) => isLate(s, now))
+    .map((s) => ({
+      id: s.id,
+      teacherName: s.teacherName,
+      classGroup: s.classGroup,
+      subject: s.subject,
+      startTime: s.startTime,
+    }));
+}
+
 /**
- * Dashboard alert for teachers who are late to class. Real-time: an entry
- * disappears the moment that teacher checks in (UC-10). Multiple late teachers
- * rotate in a carousel on a 10-second interval.
+ * Dashboard alert for teachers who are late to class. Polls the API every 30s
+ * so the list stays fresh as teachers check in via the droid.
  *
- * - Live (Firebase configured): subscribes to today's `classSchedules` and keeps
- *   only sessions where `isLate(...)` is true (past start + grace, not checkedIn).
- * - Dev (mock): synthesizes a couple of currently-late sessions and simulates one
- *   teacher checking in after ~18s, so the appear/rotate/clear behaviour is visible.
+ * In mock mode (API not configured), synthesizes a couple of late sessions and
+ * simulates one teacher checking in after ~18s so the carousel behaviour is
+ * visible during development.
  */
 export function LateAlertCarousel() {
   const [late, setLate] = useState<LateEntry[]>([]);
@@ -34,8 +48,7 @@ export function LateAlertCarousel() {
 
   // ── Source the late list ────────────────────────────────────────────────────
   useEffect(() => {
-    if (!isFirebaseConfigured()) {
-      // Synthesize late sessions anchored to "now" so they're genuinely overdue.
+    if (!isConfigured()) {
       const now = new Date();
       const start = new Date(now.getTime() - 10 * 60 * 1000);
       const seed: LateEntry[] = [
@@ -44,34 +57,27 @@ export function LateAlertCarousel() {
         { id: "late-3", teacherName: "Mohd Ridzuan bin Ismail", classGroup: "5C", subject: "P. Islam", startTime: hhmm(start) },
       ];
       setLate(seed);
-      // Simulate one teacher checking in → that alert clears.
       const t = setTimeout(() => setLate((prev) => prev.filter((e) => e.id !== "late-2")), 18000);
       return () => clearTimeout(t);
     }
 
-    // Live: react to schedule changes in real time.
-    let unsub: (() => void) | undefined;
-    (async () => {
-      const { collection, onSnapshot, query, where } = await import("firebase/firestore");
-      const today = dayOf(new Date());
-      if (!today) return;
-      const q = query(collection(db, "classSchedules"), where("day", "==", today));
-      unsub = onSnapshot(q, (snap) => {
-        const now = new Date();
-        const entries = snap.docs
-          .map((d) => ({ id: d.id, ...d.data() }) as ClassSession)
-          .filter((s) => isLate(s, now))
-          .map((s) => ({
-            id: s.id,
-            teacherName: s.teacherName,
-            classGroup: s.classGroup,
-            subject: s.subject,
-            startTime: s.startTime,
-          }));
-        setLate(entries);
-      });
-    })();
-    return () => unsub?.();
+    // Poll the API every 30 seconds for fresh late-teacher data.
+    let active = true;
+    async function poll() {
+      try {
+        const entries = await fetchLateEntries();
+        if (active) setLate(entries);
+      } catch {
+        // Silently ignore — stale data is better than a crash.
+      }
+    }
+
+    poll();
+    const interval = setInterval(poll, 30_000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
   }, []);
 
   // ── Rotate every 10s ────────────────────────────────────────────────────────

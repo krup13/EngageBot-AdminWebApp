@@ -6,7 +6,7 @@ import { useTheme } from "@/context/ThemeContext";
 import { TabToggle } from "@/components/ui/TabToggle";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { isFirebaseConfigured } from "@/lib/firebase";
+import { isConfigured } from "@/lib/api-client";
 import { seedDatabase } from "@/lib/api/seed";
 
 type ThemeOption = "light" | "dark" | "system";
@@ -81,7 +81,7 @@ export default function SettingsPage() {
   const [seeding, setSeeding] = useState(false);
   const [seedMsg, setSeedMsg] = useState<string | null>(null);
   const [seedOk, setSeedOk] = useState(true);
-  const live = isFirebaseConfigured();
+  const live = isConfigured();
 
   async function handleSeed() {
     setSeeding(true);
@@ -178,15 +178,16 @@ export default function SettingsPage() {
               <p className="text-sm font-semibold text-text mb-0.5">Seed sample data</p>
               <p className="text-xs text-muted">
                 Push the built-in sample teachers, students, droids, class groups and schedules into
-                your live Firestore database. Re-running overwrites the same records (no duplicates).
+                your live MongoDB database via the API. Seeded teachers will have the temporary
+                password <code>EngageBot2026!</code>. Re-running skips existing records.
               </p>
             </div>
           </div>
 
           {!live && (
             <p className="text-xs text-warning">
-              Connect Firebase first — set real credentials and <code>NEXT_PUBLIC_DEV_BYPASS=false</code> in
-              <code> .env.local</code>, then restart the dev server.
+              API not connected — set <code>NEXT_PUBLIC_API_URL</code> in <code>.env.local</code> and
+              restart the dev server.
             </p>
           )}
 

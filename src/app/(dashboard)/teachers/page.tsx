@@ -2,27 +2,24 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Search, MoreVertical, Download, UserPlus, CalendarClock, Pencil } from "lucide-react";
+import { Search, MoreVertical, Download, UserPlus, CalendarClock, Pencil, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { getTeachers, updateTeacher } from "@/lib/api/teachers";
+import { getTeachers, updateTeacher, deleteTeacher } from "@/lib/api/teachers";
+import { getSubjects } from "@/lib/api/subjects";
 import { getSessions, DAYS } from "@/lib/api/schedules";
-import {
-  subjectsForTeacher,
-  freeTeachers,
-  sessionsForTeacherToday,
-} from "@/lib/schedule-utils";
-import type { Teacher, ClassSession, SessionDay } from "@/lib/types";
+import { subjectsForTeacher, freeTeachers, sessionsForTeacherToday } from "@/lib/schedule-utils";
+import type { Teacher, ClassSession, SessionDay, Subject } from "@/lib/types";
+// NOTE: assignedClasses is now managed automatically by the schedule — not editable here
 
 const STATUS_OPTIONS: Teacher["status"][] = ["active", "pending", "inactive"];
 
 export default function TeachersPage() {
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [sessions, setSessions] = useState<ClassSession[]>([]);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
-
-  // Filters
   const [subjectFilter, setSubjectFilter] = useState("all");
   const [freeDay, setFreeDay] = useState<SessionDay | "">("");
   const [freeStart, setFreeStart] = useState("");
@@ -32,9 +29,13 @@ export default function TeachersPage() {
   const [editTeacher, setEditTeacher] = useState<Teacher | null>(null);
   const [editName, setEditName] = useState("");
   const [editEmail, setEditEmail] = useState("");
-  const [editDept, setEditDept] = useState("");
+  const [editSubjects, setEditSubjects] = useState<string[]>([]);
   const [editStatus, setEditStatus] = useState<Teacher["status"]>("active");
   const [saving, setSaving] = useState(false);
+
+  // Delete confirmation
+  const [deleteTarget, setDeleteTarget] = useState<Teacher | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Today's-classes modal
   const [todayTeacher, setTodayTeacher] = useState<Teacher | null>(null);
@@ -42,6 +43,7 @@ export default function TeachersPage() {
   useEffect(() => {
     getTeachers().then(setTeachers);
     getSessions().then(setSessions);
+    getSubjects().then(setSubjects);
   }, []);
 
   const allSubjects = useMemo(
@@ -49,12 +51,9 @@ export default function TeachersPage() {
     [sessions]
   );
 
-  // Teachers free in the chosen day/time window (only when all three are set).
   const freeIds = useMemo(() => {
     if (!freeDay || !freeStart || !freeEnd) return null;
-    return new Set(
-      freeTeachers(teachers, sessions, freeDay, freeStart, freeEnd).map((t) => t.id)
-    );
+    return new Set(freeTeachers(teachers, sessions, freeDay, freeStart, freeEnd).map((t) => t.id));
   }, [freeDay, freeStart, freeEnd, teachers, sessions]);
 
   const filtered = teachers.filter((t) => {
@@ -63,7 +62,8 @@ export default function TeachersPage() {
       t.email.toLowerCase().includes(search.toLowerCase()) ||
       t.employeeId.toLowerCase().includes(search.toLowerCase());
     const matchesSubject =
-      subjectFilter === "all" || subjectsForTeacher(sessions, t.id).includes(subjectFilter);
+      subjectFilter === "all" || subjectsForTeacher(sessions, t.id).includes(subjectFilter) ||
+      (t.subjects ?? []).includes(subjectFilter);
     const matchesFree = freeIds === null || freeIds.has(t.id);
     return matchesSearch && matchesSubject && matchesFree;
   });
@@ -79,8 +79,12 @@ export default function TeachersPage() {
     setEditTeacher(t);
     setEditName(t.name);
     setEditEmail(t.email);
-    setEditDept(t.department);
+    setEditSubjects(t.subjects ?? []);
     setEditStatus(t.status);
+  }
+
+  function toggleSubject(name: string) {
+    setEditSubjects((prev) => prev.includes(name) ? prev.filter((s) => s !== name) : [...prev, name]);
   }
 
   async function handleSave() {
@@ -88,7 +92,7 @@ export default function TeachersPage() {
     const patch = {
       name: editName,
       email: editEmail,
-      department: editDept,
+      subjects: editSubjects,
       status: editStatus,
     };
     setSaving(true);
@@ -100,8 +104,16 @@ export default function TeachersPage() {
     setEditTeacher(null);
   }
 
-  const inputCls =
-    "rounded-lg border border-border px-3 py-2.5 text-sm bg-surface outline-none focus:border-primary focus:ring-1 focus:ring-primary";
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    await deleteTeacher(deleteTarget.id);
+    setTeachers((prev) => prev.filter((t) => t.id !== deleteTarget.id));
+    setDeleting(false);
+    setDeleteTarget(null);
+  }
+
+  const inputCls = "rounded-lg border border-border px-3 py-2.5 text-sm bg-surface outline-none focus:border-primary focus:ring-1 focus:ring-primary";
   const filterCls = "h-9 px-3 text-sm border border-border rounded-lg bg-surface text-text outline-none focus:ring-1 focus:ring-primary";
 
   return (
@@ -109,19 +121,11 @@ export default function TeachersPage() {
       <div className="flex items-start justify-between mb-6">
         <div>
           <h2 className="text-2xl font-bold text-text">Teachers</h2>
-          <p className="text-sm text-muted mt-1">Manage staff profiles, departmental roles, and class assignments.</p>
+          <p className="text-sm text-muted mt-1">Manage staff profiles, subject assignments, and class assignments.</p>
         </div>
         <div className="flex gap-3">
-          <Button variant="secondary" size="sm">
-            <Download size={14} />
-            Export Directory
-          </Button>
-          <Link href="/register/teacher">
-            <Button size="sm">
-              <UserPlus size={14} />
-              Register New Teacher
-            </Button>
-          </Link>
+          <Button variant="secondary" size="sm"><Download size={14} />Export Directory</Button>
+          <Link href="/register/teacher"><Button size="sm"><UserPlus size={14} />Register New Teacher</Button></Link>
         </div>
       </div>
 
@@ -129,24 +133,14 @@ export default function TeachersPage() {
       <div className="flex flex-wrap items-center gap-3 mb-5">
         <div className="relative flex-1 min-w-[220px] max-w-sm">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name, ID or email…"
-            className="w-full rounded-lg border border-border pl-9 pr-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary bg-surface"
-          />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name, ID or email…" className="w-full rounded-lg border border-border pl-9 pr-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary bg-surface" />
         </div>
-
         <select value={subjectFilter} onChange={(e) => setSubjectFilter(e.target.value)} className={filterCls}>
           <option value="all">All subjects</option>
-          {allSubjects.map((s) => (
-            <option key={s} value={s}>{s}</option>
-          ))}
+          {subjects.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+          {allSubjects.filter((s) => !subjects.find((sub) => sub.name === s)).map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
-
-        <span className="text-sm text-muted ml-auto">
-          Showing <strong>{filtered.length}</strong> of <strong>{teachers.length}</strong> teachers
-        </span>
+        <span className="text-sm text-muted ml-auto">Showing <strong>{filtered.length}</strong> of <strong>{teachers.length}</strong> teachers</span>
       </div>
 
       {/* Free-at filter */}
@@ -154,24 +148,15 @@ export default function TeachersPage() {
         <span className="text-muted">Free at:</span>
         <select value={freeDay} onChange={(e) => setFreeDay(e.target.value as SessionDay | "")} className={filterCls}>
           <option value="">Any day</option>
-          {DAYS.map((d) => (
-            <option key={d} value={d}>{d[0].toUpperCase() + d.slice(1)}</option>
-          ))}
+          {DAYS.map((d) => <option key={d} value={d}>{d[0].toUpperCase() + d.slice(1)}</option>)}
         </select>
         <input type="time" value={freeStart} onChange={(e) => setFreeStart(e.target.value)} className={filterCls} />
         <span className="text-muted">–</span>
         <input type="time" value={freeEnd} onChange={(e) => setFreeEnd(e.target.value)} className={filterCls} />
         {(freeDay || freeStart || freeEnd) && (
-          <button
-            onClick={() => { setFreeDay(""); setFreeStart(""); setFreeEnd(""); }}
-            className="text-xs text-muted hover:text-text underline"
-          >
-            Clear
-          </button>
+          <button onClick={() => { setFreeDay(""); setFreeStart(""); setFreeEnd(""); }} className="text-xs text-muted hover:text-text underline">Clear</button>
         )}
-        {freeIds !== null && (
-          <span className="text-xs text-primary">{freeIds.size} teacher(s) free</span>
-        )}
+        {freeIds !== null && <span className="text-xs text-primary">{freeIds.size} teacher(s) free</span>}
       </div>
 
       {/* Table */}
@@ -180,15 +165,10 @@ export default function TeachersPage() {
           <thead>
             <tr className="border-b border-border bg-subtle">
               <th className="w-10 px-4 py-3">
-                <input
-                  type="checkbox"
-                  checked={selected.length === filtered.length && filtered.length > 0}
-                  onChange={toggleAll}
-                  className="rounded border-border accent-primary"
-                />
+                <input type="checkbox" checked={selected.length === filtered.length && filtered.length > 0} onChange={toggleAll} className="rounded border-border accent-primary" />
               </th>
               <th className="text-left text-xs font-medium text-muted px-4 py-3">NAME &amp; ID</th>
-              <th className="text-left text-xs font-medium text-muted px-4 py-3">DEPARTMENT</th>
+              <th className="text-left text-xs font-medium text-muted px-4 py-3">SUBJECTS</th>
               <th className="text-left text-xs font-medium text-muted px-4 py-3">ASSIGNED CLASSES</th>
               <th className="text-left text-xs font-medium text-muted px-4 py-3">DATE ADDED</th>
               <th className="px-4 py-3" />
@@ -198,12 +178,7 @@ export default function TeachersPage() {
             {filtered.map((t) => (
               <tr key={t.id} className="hover:bg-subtle transition-colors">
                 <td className="px-4 py-3">
-                  <input
-                    type="checkbox"
-                    checked={selected.includes(t.id)}
-                    onChange={() => toggleSelect(t.id)}
-                    className="rounded border-border accent-primary"
-                  />
+                  <input type="checkbox" checked={selected.includes(t.id)} onChange={() => toggleSelect(t.id)} className="rounded border-border accent-primary" />
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-3">
@@ -220,16 +195,21 @@ export default function TeachersPage() {
                   </div>
                 </td>
                 <td className="px-4 py-3">
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-subtle text-muted border border-border">
-                    {t.department}
-                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(t.subjects ?? []).length > 0
+                      ? (t.subjects ?? []).map((s) => (
+                          <span key={s} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-subtle text-muted border border-border">{s}</span>
+                        ))
+                      : t.department
+                        ? <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-subtle text-muted border border-border">{t.department}</span>
+                        : <span className="text-xs text-muted italic">—</span>
+                    }
+                  </div>
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex flex-wrap gap-1.5">
-                    {t.assignedClasses.map((c) => (
-                      <span key={c} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-light text-primary border border-success/30">
-                        {c}
-                      </span>
+                    {(t.assignedClasses ?? []).map((c) => (
+                      <span key={c} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-light text-primary border border-success/30">{c}</span>
                     ))}
                   </div>
                 </td>
@@ -238,42 +218,22 @@ export default function TeachersPage() {
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-1">
-                    <button
-                      onClick={() => setTodayTeacher(t)}
-                      title="Today's classes"
-                      className="text-muted hover:text-primary p-1.5 rounded transition-colors"
-                    >
-                      <CalendarClock size={16} />
-                    </button>
-                    <button
-                      onClick={() => openEdit(t)}
-                      title="Edit teacher"
-                      className="text-muted hover:text-text p-1.5 rounded transition-colors"
-                    >
-                      <MoreVertical size={16} />
-                    </button>
+                    <button onClick={() => setTodayTeacher(t)} title="Today's classes" className="text-muted hover:text-primary p-1.5 rounded transition-colors"><CalendarClock size={16} /></button>
+                    <button onClick={() => openEdit(t)} title="Edit teacher" className="text-muted hover:text-text p-1.5 rounded transition-colors"><MoreVertical size={16} /></button>
+                    <button onClick={() => setDeleteTarget(t)} title="Delete teacher" className="text-muted hover:text-error p-1.5 rounded transition-colors"><Trash2 size={16} /></button>
                   </div>
                 </td>
               </tr>
             ))}
             {filtered.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-sm text-muted">
-                  No teachers match the current filters.
-                </td>
-              </tr>
+              <tr><td colSpan={6} className="px-4 py-10 text-center text-sm text-muted">No teachers match the current filters.</td></tr>
             )}
           </tbody>
         </table>
       </div>
 
       {/* Edit Teacher modal */}
-      <Modal
-        open={!!editTeacher}
-        onClose={() => setEditTeacher(null)}
-        title="Edit Teacher Details"
-        subtitle={editTeacher ? `ID: ${editTeacher.employeeId}` : undefined}
-      >
+      <Modal open={!!editTeacher} onClose={() => setEditTeacher(null)} title="Edit Teacher Details" subtitle={editTeacher ? `ID: ${editTeacher.employeeId}` : undefined}>
         {editTeacher && (
           <div className="flex flex-col gap-5">
             <div className="flex flex-col gap-1">
@@ -284,20 +244,35 @@ export default function TeachersPage() {
               <label className="text-sm font-medium text-text">Work Email</label>
               <input value={editEmail} onChange={(e) => setEditEmail(e.target.value)} className={inputCls} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="flex flex-col gap-1">
-                <label className="text-sm font-medium text-text">Department</label>
-                <input value={editDept} onChange={(e) => setEditDept(e.target.value)} className={inputCls} />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-sm font-medium text-text">Status</label>
-                <select value={editStatus} onChange={(e) => setEditStatus(e.target.value as Teacher["status"])} className={inputCls}>
-                  {STATUS_OPTIONS.map((s) => (
-                    <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>
-                  ))}
-                </select>
-              </div>
+
+            {/* Subjects multi-select */}
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium text-text">Subjects</label>
+              {subjects.length === 0 ? (
+                <p className="text-xs text-muted">No subjects registered yet. <Link href="/subjects" className="text-primary underline">Add subjects first.</Link></p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {subjects.map((s) => {
+                    const active = editSubjects.includes(s.name);
+                    return (
+                      <button key={s.id} type="button" onClick={() => toggleSubject(s.name)}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${active ? "bg-primary text-white border-primary" : "bg-surface text-muted border-border hover:border-primary"}`}>
+                        {active && <X size={11} />}
+                        {s.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-medium text-text">Status</label>
+              <select value={editStatus} onChange={(e) => setEditStatus(e.target.value as Teacher["status"])} className={inputCls}>
+                {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>)}
+              </select>
+            </div>
+
             <div className="flex justify-end gap-3 pt-2 border-t border-border">
               <Button variant="ghost" onClick={() => setEditTeacher(null)}>Cancel</Button>
               <Button onClick={handleSave} loading={saving}><Pencil size={14} />Save Changes</Button>
@@ -306,13 +281,24 @@ export default function TeachersPage() {
         )}
       </Modal>
 
+      {/* Delete confirmation modal */}
+      <Modal open={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Delete Teacher" subtitle={deleteTarget?.name}>
+        {deleteTarget && (
+          <div className="flex flex-col gap-5">
+            <p className="text-sm text-text">Are you sure you want to permanently delete <strong>{deleteTarget.name}</strong>? This will remove their account and all their scheduled classes from the database. This cannot be undone.</p>
+            <div className="flex justify-end gap-3 pt-2 border-t border-border">
+              <Button variant="ghost" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+              <button onClick={handleDelete} disabled={deleting} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition disabled:opacity-50">
+                <Trash2 size={14} />
+                {deleting ? "Deleting…" : "Delete Teacher"}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
       {/* Today's classes modal */}
-      <Modal
-        open={!!todayTeacher}
-        onClose={() => setTodayTeacher(null)}
-        title={todayTeacher ? `${todayTeacher.name} — Today's Classes` : ""}
-        subtitle="Scheduled sessions for the current weekday"
-      >
+      <Modal open={!!todayTeacher} onClose={() => setTodayTeacher(null)} title={todayTeacher ? `${todayTeacher.name} — Today's Classes` : ""} subtitle="Scheduled sessions for the current weekday">
         {todayTeacher && <TodayClasses teacher={todayTeacher} sessions={sessions} />}
       </Modal>
     </div>
@@ -320,13 +306,10 @@ export default function TeachersPage() {
 }
 
 function TodayClasses({ teacher, sessions }: { teacher: Teacher; sessions: ClassSession[] }) {
-  const today = (["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"][new Date().getDay()]) as string;
+  const today = (["sunday","monday","tuesday","wednesday","thursday","friday","saturday"][new Date().getDay()]) as string;
   const day = (DAYS.includes(today as SessionDay) ? today : "monday") as SessionDay;
   const todays = sessionsForTeacherToday(sessions, teacher.id, day);
-
-  if (todays.length === 0) {
-    return <p className="text-sm text-muted">No classes scheduled for {day[0].toUpperCase() + day.slice(1)}.</p>;
-  }
+  if (todays.length === 0) return <p className="text-sm text-muted">No classes scheduled for {day[0].toUpperCase() + day.slice(1)}.</p>;
   return (
     <div className="flex flex-col gap-2">
       {todays.map((s) => (

@@ -1,7 +1,5 @@
-import { Student, CreateStudentInput } from "@/lib/types";
-import { isFirebaseConfigured, readAll, create, update, nextSequence } from "@/lib/firestore";
-
-const COLLECTION = "students";
+import type { Student, CreateStudentInput } from "@/lib/types";
+import { apiClient, isConfigured } from "@/lib/api-client";
 
 export const MOCK_STUDENTS: Student[] = [
   { id: "1", studentId: "STU-00001", name: "Ahmad bin Zulkifli", icNumber: "120512101234", classGroup: "4 Gemilang", source: "manual", status: "verified" },
@@ -14,12 +12,12 @@ export const MOCK_STUDENTS: Student[] = [
 ];
 
 export async function getStudents(): Promise<Student[]> {
-  if (!isFirebaseConfigured()) return MOCK_STUDENTS;
-  return readAll<Student>(COLLECTION);
+  if (!isConfigured()) return MOCK_STUDENTS;
+  return apiClient.get<Student[]>("/students");
 }
 
 export async function registerStudent(data: CreateStudentInput): Promise<Student> {
-  if (!isFirebaseConfigured()) {
+  if (!isConfigured()) {
     const newStudent: Student = {
       ...data,
       id: String(Date.now()),
@@ -30,24 +28,16 @@ export async function registerStudent(data: CreateStudentInput): Promise<Student
     MOCK_STUDENTS.push(newStudent);
     return newStudent;
   }
-
-  const seq = await nextSequence(COLLECTION);
-  const fields: Omit<Student, "id"> = {
-    ...data,
-    studentId: `STU-${String(seq).padStart(5, "0")}`,
-    source: "manual",
-    status: "pending",
-  };
-  return create<Student>(COLLECTION, fields);
+  return apiClient.post<Student>("/students", data);
 }
 
 export type UpdateStudentInput = Partial<Pick<Student, "name" | "icNumber" | "classGroup" | "status">>;
 
 export async function updateStudent(id: string, patch: UpdateStudentInput): Promise<void> {
-  if (!isFirebaseConfigured()) {
+  if (!isConfigured()) {
     const s = MOCK_STUDENTS.find((x) => x.id === id);
     if (s) Object.assign(s, patch);
     return;
   }
-  await update<Student>(COLLECTION, id, patch);
+  await apiClient.patch(`/students/${id}`, patch);
 }
