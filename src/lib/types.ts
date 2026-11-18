@@ -136,6 +136,13 @@ export interface StudentEngagement {
   focusScore: number;          // 0–100
   distractedCount: number;
   participationScore: number;  // 0–100
+  // Recorded by the droid; older reports may not have them.
+  avgEAR?: number;
+  avgMAR?: number;
+  poseDistribution?: Record<string, number>;        // forward / down / side / away, % of frames
+  expressionDistribution?: Record<string, number>;  // attentive / neutral / drowsy / yawning
+  postureDistribution?: Record<string, number>;     // hand_raised / leaning_in / neutral / head_down / slouched
+  timeline?: { t: number; score: number }[];        // seconds into the lesson, focus 0–100
 }
 
 export interface DroidObservation {
@@ -158,6 +165,7 @@ export interface SessionReport {
   studentEngagements: StudentEngagement[];
   droidObservations: DroidObservation[];
   status: "completed" | "in_progress";
+  noiseDistribution?: Record<string, number>;       // quiet / moderate / loud, % of the lesson
 }
 
 export interface MonthlyReportSummary {

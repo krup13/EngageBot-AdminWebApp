@@ -15,6 +15,8 @@ import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { getSessionReports, getMonthlyReport } from "@/lib/api/reports";
 import { getClassrooms } from "@/lib/api/classrooms";
+import { useAuth } from "@/context/AuthContext";
+import { DailyPrintReport, MonthlyPrintReport } from "@/components/reports/PrintableReport";
 import type {
   SessionReport,
   MonthlyReportSummary,
@@ -129,6 +131,7 @@ function ObservationsList({ observations }: { observations: DroidObservation[] }
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ReportsPage() {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<"daily" | "monthly">("daily");
   const [selectedDate, setSelectedDate] = useState(todayLocal);
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().getMonth() + 1);
@@ -253,8 +256,30 @@ export default function ReportsPage() {
   const selectClass =
     "h-9 px-3 text-sm border border-border rounded-lg bg-surface text-text focus:outline-none focus:ring-1 focus:ring-primary";
 
+  const classLabel = classFilter === "all" ? "All classes" : classFilter;
+
   return (
-    <div className="p-6 flex flex-col gap-6 max-w-screen-xl">
+    <>
+    {/* Printed instead of the screen layout: a proper A4 document. */}
+    <div className="hidden print:block">
+      {activeTab === "daily" ? (
+        <DailyPrintReport
+          date={selectedDate}
+          classLabel={classLabel}
+          sessions={printingSession ? dailySessions.filter((s) => s.id === printingSession) : dailySessions}
+          school={user?.school}
+        />
+      ) : (
+        <MonthlyPrintReport
+          monthLabel={`${MONTHS[selectedMonth - 1]} ${selectedYear}`}
+          classLabel={classLabel}
+          sessions={filteredMonthly}
+          school={user?.school}
+        />
+      )}
+    </div>
+
+    <div className="p-6 flex flex-col gap-6 max-w-screen-xl print:hidden">
       {/* Page header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -585,5 +610,6 @@ export default function ReportsPage() {
         </div>
       )}
     </div>
+    </>
   );
 }
