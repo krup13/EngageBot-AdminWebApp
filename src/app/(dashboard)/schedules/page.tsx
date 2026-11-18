@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, Copy, Repeat2, Upload, Download, CheckCircle
 import { AlertBanner } from "@/components/ui/AlertBanner";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
+import { TabToggle } from "@/components/ui/TabToggle";
 import { getSessions, updateSession, createSession, DAYS, SESSION_COLORS } from "@/lib/api/schedules";
 import { getTeachers } from "@/lib/api/teachers";
 import { getClassrooms } from "@/lib/api/classrooms";
@@ -13,7 +14,7 @@ import { getSettings, updateSettings } from "@/lib/api/settings";
 import { createNotification } from "@/lib/api/notifications";
 import { syncSchedule } from "@/lib/api/calendar";
 import { getCalendarToken } from "@/lib/auth";
-import { findConflicts, freeTeachers, type SessionConflict } from "@/lib/schedule-utils";
+import { dayOf, findConflicts, freeTeachers, timeOverlap, type SessionConflict } from "@/lib/schedule-utils";
 import { ClassSession, ClassGroup, Subject, SessionDay, Teacher } from "@/lib/types";
 
 // Time options for the edit modal's Start/End dropdowns — a generous school-day
@@ -39,7 +40,7 @@ const DAY_LABELS: Record<SessionDay, string> = {
   monday: "MON", tuesday: "TUE", wednesday: "WED", thursday: "THU", friday: "FRI",
 };
 
-const ALL_ROOMS = "all";
+type ScheduleView = "overview" | "classroom";
 
 function timeToMin(time: string): number {
   const [h, m] = time.split(":").map(Number);
@@ -76,6 +77,13 @@ function fmtDate(d: Date): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+// The date of weekday `index` (0 = Monday) in the week starting `weekStart`.
+function dayDate(weekStart: Date, index: number): Date {
+  const d = new Date(weekStart);
+  d.setDate(d.getDate() + index);
+  return d;
+}
+
 function conflictMessage(c: SessionConflict): string {
   const day = c.a.day[0].toUpperCase() + c.a.day.slice(1);
   if (c.reason === "teacher") {
@@ -89,7 +97,10 @@ export default function SchedulesPage() {
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [classrooms, setClassrooms] = useState<ClassGroup[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [room, setRoom] = useState(ALL_ROOMS);
+  // "overview" = every classroom side by side for one day; "classroom" = one classroom's week.
+  const [view, setView] = useState<ScheduleView>("overview");
+  const [overviewDay, setOverviewDay] = useState<SessionDay>(() => dayOf(new Date()) ?? "monday");
+  const [room, setRoom] = useState("");
   const [weekOffset, setWeekOffset] = useState(0);
   const [recessTime, setRecessTime] = useState("");
   const [savingRecess, setSavingRecess] = useState(false);
@@ -164,7 +175,18 @@ export default function SchedulesPage() {
     return freeTeachers(teachers, sessions, editSession.day, editStart, editEnd, editSession.id);
   }, [editSession, teachers, sessions, editStart, editEnd]);
   const editTeacherIsFree = freeForSlot.some((t) => t.id === editTeacher);
-  const hasConflict = !!editTeacher && !editTeacherIsFree; // double-booking only
+  const hasConflict = !!editTeacher && !editTeacherIsFree; // teacher double-booking
+  const editRoomClash = editSession
+    ? sessions.find(
+        (s) =>
+          s.id !== editSession.id &&
+          s.classGroup === editSession.classGroup &&
+          s.day === editSession.day &&
+          timeOverlap(s.startTime, s.endTime, editStart, editEnd),
+      )
+    : undefined;
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
 
   // Dropdown shows teachers who are both free in this slot AND teach the chosen
   // subject. The currently-assigned teacher is always kept visible (flagged) so
@@ -179,9 +201,34 @@ export default function SchedulesPage() {
       ? [currentTeacher, ...availableForEdit]
       : availableForEdit;
 
-  // Filter the grid by the selected classroom (matched on the session's classGroup).
-  const visibleSessions =
-    room === ALL_ROOMS ? sessions : sessions.filter((s) => s.classGroup === room);
+  // Classroom view: one classroom's sessions across the week (first classroom until one is picked).
+  const activeRoom = room || classrooms[0]?.name || "";
+  const roomSessions = sessions.filter((s) => s.classGroup === activeRoom);
+
+  // Overview: every classroom with a class on the chosen day, one column each,
+  // in the classroom list's order (plus any class name no longer in that list).
+  const daySessions = useMemo(() => sessions.filter((s) => s.day === overviewDay), [sessions, overviewDay]);
+  const overviewColumns = useMemo(() => {
+    const scheduled = new Set(daySessions.map((s) => s.classGroup));
+    const known = classrooms.filter((c) => scheduled.has(c.name));
+    const unknown = [...scheduled].filter((name) => !classrooms.some((c) => c.name === name)).sort();
+    return [
+      ...known.map((c) => ({ key: c.name, label: c.name, sublabel: c.room || undefined })),
+      ...unknown.map((name) => ({ key: name, label: name })),
+    ];
+  }, [daySessions, classrooms]);
+
+  // Every session involved in a conflict, with the reason (shown on hover).
+  const conflictNotes = useMemo(() => {
+    const notes = new Map<string, string>();
+    for (const c of conflicts) {
+      const msg = conflictMessage(c);
+      if (!notes.has(c.a.id)) notes.set(c.a.id, msg);
+      if (!notes.has(c.b.id)) notes.set(c.b.id, msg);
+    }
+    return notes;
+  }, [conflicts]);
+  const overviewConflictCount = conflicts.filter((c) => c.a.day === overviewDay).length;
 
   // Visible time window for the grid: a default 08:00–17:00, widened to fit any
   // session that starts earlier or ends later so nothing is clipped.
@@ -213,6 +260,7 @@ export default function SchedulesPage() {
   const weekLabel = `Week ${isoWeek(weekStart)} (${fmtDate(weekStart)} – ${fmtDate(weekEnd)})`;
 
   function openEdit(session: ClassSession) {
+    setSaveError(null);
     setEditSession(session);
     setEditStart(session.startTime);
     setEditEnd(session.endTime);
@@ -232,19 +280,27 @@ export default function SchedulesPage() {
       color: SESSION_COLORS[editSubject] ?? "#F3F4F6",
     };
     setSaving(true);
-    await updateSession(editSession.id, patch);
-    setSessions((prev) => prev.map((s) => (s.id === editSession.id ? { ...s, ...patch } : s)));
-    setSaving(false);
-    setEditSession(null);
+    setSaveError(null);
+    try {
+      await updateSession(editSession.id, patch);
+      setSessions((prev) => prev.map((s) => (s.id === editSession.id ? { ...s, ...patch } : s)));
+      setEditSession(null);
+    } catch (e) {
+      // e.g. the server refuses a clash this page did not know about yet
+      setSaveError(e instanceof Error ? e.message : "Could not save this class.");
+    } finally {
+      setSaving(false);
+    }
   }
 
-  // Open the add modal pre-filled with the clicked weekday + time (a 1-hour slot).
-  function openAdd(day: SessionDay, startMin: number) {
+  // Open the add modal pre-filled with the clicked weekday, time (a 1-hour slot) and classroom.
+  function openAdd(day: SessionDay, startMin: number, classGroup: string) {
+    setAddError(null);
     setAddDraft({
       day,
       startTime: minToHHMM(startMin),
       endTime: minToHHMM(startMin + 60),
-      classGroup: room === ALL_ROOMS ? "" : room,
+      classGroup,
       subject: "",
       teacherId: "",
     });
@@ -257,25 +313,26 @@ export default function SchedulesPage() {
   async function handleAddSave() {
     if (!addDraft) return;
     const teacher = teachers.find((t) => t.id === addDraft.teacherId);
-    const created = await (async () => {
-      setAdding(true);
-      try {
-        return await createSession({
-          subject: addDraft.subject,
-          teacherId: addDraft.teacherId,
-          teacherName: teacher?.name ?? "",
-          classGroup: addDraft.classGroup,
-          startTime: addDraft.startTime,
-          endTime: addDraft.endTime,
-          day: addDraft.day,
-          color: SESSION_COLORS[addDraft.subject] ?? "#F3F4F6",
-        });
-      } finally {
-        setAdding(false);
-      }
-    })();
-    setSessions((prev) => [...prev, created]);
-    setAddDraft(null);
+    setAdding(true);
+    setAddError(null);
+    try {
+      const created = await createSession({
+        subject: addDraft.subject,
+        teacherId: addDraft.teacherId,
+        teacherName: teacher?.name ?? "",
+        classGroup: addDraft.classGroup,
+        startTime: addDraft.startTime,
+        endTime: addDraft.endTime,
+        day: addDraft.day,
+        color: SESSION_COLORS[addDraft.subject] ?? "#F3F4F6",
+      });
+      setSessions((prev) => [...prev, created]);
+      setAddDraft(null);
+    } catch (e) {
+      setAddError(e instanceof Error ? e.message : "Could not add this class.");
+    } finally {
+      setAdding(false);
+    }
   }
 
   // Teachers who teach the draft's subject AND are free in the draft's slot.
@@ -307,14 +364,30 @@ export default function SchedulesPage() {
     <div className="h-full flex flex-col">
       {/* Toolbar */}
       <div className="bg-surface border-b border-border px-6 py-3 flex items-center gap-4 flex-wrap shrink-0">
-        <select value={room} onChange={(e) => setRoom(e.target.value)} className="rounded-lg border border-border px-3 py-2 text-sm bg-surface outline-none focus:border-primary">
-          <option value={ALL_ROOMS}>All Classrooms</option>
-          {classrooms.map((c) => (
-            <option key={c.id} value={c.name}>
-              {c.name}
-            </option>
-          ))}
-        </select>
+        <TabToggle
+          tabs={[
+            { label: "All classrooms (day)", value: "overview" },
+            { label: "By classroom", value: "classroom" },
+          ]}
+          active={view}
+          onChange={(v) => setView(v as ScheduleView)}
+        />
+
+        {view === "classroom" && (
+          <select
+            value={activeRoom}
+            onChange={(e) => setRoom(e.target.value)}
+            aria-label="Classroom"
+            className="rounded-lg border border-border px-3 py-2 text-sm bg-surface outline-none focus:border-primary"
+          >
+            {classrooms.length === 0 && <option value="">No classrooms yet</option>}
+            {classrooms.map((c) => (
+              <option key={c.id} value={c.name}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        )}
 
         <div className="flex items-center gap-2 ml-2">
           <button
@@ -347,14 +420,20 @@ export default function SchedulesPage() {
             { label: "Import CSV", icon: Upload },
             { label: "Export CSV", icon: Download },
           ].map(({ label, icon: Icon }) => (
-            <button key={label} className="flex items-center gap-1.5 text-sm text-muted border border-border rounded-lg px-3 py-1.5 hover:text-text hover:bg-subtle transition-colors">
+            <button key={label} disabled title="Coming soon" className="flex items-center gap-1.5 text-sm text-muted border border-border rounded-lg px-3 py-1.5 opacity-50 cursor-not-allowed">
               <Icon size={14} />
               {label}
             </button>
           ))}
-          <Button size="sm" onClick={handleFinishEditing} loading={syncing}>
+          <Button
+            size="sm"
+            onClick={handleFinishEditing}
+            loading={syncing}
+            disabled={!getCalendarToken()}
+            title={getCalendarToken() ? "Send this timetable to teachers' Google Calendars" : "Google Calendar sync is not connected yet"}
+          >
             <CheckCircle size={14} />
-            Finish Editing →
+            Sync to Google Calendar
           </Button>
         </div>
       </div>
@@ -414,91 +493,58 @@ export default function SchedulesPage() {
         </div>
       )}
 
-      {/* Calendar grid */}
+      {/* Calendar */}
       <div className="flex-1 overflow-auto px-6 py-4">
-        <div className="bg-surface rounded-xl border border-border overflow-hidden min-w-[700px]">
-          <div className="grid grid-cols-[56px_repeat(5,1fr)] border-b border-border">
-            <div className="py-3" />
-            {DAYS.map((day) => (
-              <div key={day} className="py-3 text-center text-xs font-semibold text-muted border-l border-border">
-                {DAY_LABELS[day]}
-              </div>
-            ))}
-          </div>
+        {view === "overview" ? (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              <TabToggle
+                tabs={DAYS.map((d) => ({ label: DAY_LABELS[d], value: d }))}
+                active={overviewDay}
+                onChange={(v) => setOverviewDay(v as SessionDay)}
+              />
+              <span className="text-sm text-muted">
+                {overviewColumns.length} classroom{overviewColumns.length === 1 ? "" : "s"} scheduled
+              </span>
+              {overviewConflictCount > 0 && (
+                <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-error bg-error-bg border border-error-border rounded-full px-2.5 py-1">
+                  <AlertCircle size={13} />
+                  {overviewConflictCount} overlap{overviewConflictCount === 1 ? "" : "s"} on {DAY_LABELS[overviewDay]}
+                </span>
+              )}
+            </div>
 
-          <div className="relative">
-            {gridRows.map((rowMin) => (
-              <div
-                key={rowMin}
-                className="grid grid-cols-[56px_repeat(5,1fr)] border-b border-border/50"
-                style={{ height: ROW_H }}
-              >
-                <div className="pr-2 text-right text-xs text-muted self-start pt-1">
-                  {rowMin % 60 === 0 ? minToLabel(rowMin) : ""}
-                </div>
-                {DAYS.map((day) => (
-                  <div
-                    key={day}
-                    onClick={() => openAdd(day, rowMin)}
-                    title={`Add a class on ${DAY_LABELS[day]} at ${minToHHMM(rowMin)}`}
-                    className="border-l border-border/50 relative cursor-pointer hover:bg-primary-light/40 transition-colors"
-                  />
-                ))}
+            {overviewColumns.length === 0 ? (
+              <div className="bg-surface rounded-xl border border-border px-6 py-12 text-center text-sm text-muted">
+                No classes are scheduled on {DAY_LABELS[overviewDay]}. Switch to <strong>By classroom</strong> to add one.
               </div>
-            ))}
-
-            {/* Recess band — spans all day columns at the recess hour */}
-            {recessTime && Number.isFinite(timeToMin(recessTime)) && (
-              <div
-                className="absolute pointer-events-none flex items-center justify-center border-y border-dashed border-amber-300"
-                style={{
-                  top: ((timeToMin(recessTime) - gridStartMin) / SLOT_MIN) * ROW_H,
-                  height: ROW_H * 2,
-                  left: 56,
-                  right: 0,
-                  backgroundColor: "rgba(245, 158, 11, 0.12)",
-                }}
-              >
-                <span className="text-[11px] font-semibold text-amber-600">☕ RECESS</span>
-              </div>
+            ) : (
+              <TimeGrid
+                columns={overviewColumns}
+                sessionsFor={(col) => daySessions.filter((s) => s.classGroup === col)}
+                gridStartMin={gridStartMin}
+                gridRows={gridRows}
+                recessTime={recessTime}
+                conflictNotes={conflictNotes}
+                minColWidth={150}
+                onCellClick={(col, min) => openAdd(overviewDay, min, col)}
+                onSessionClick={openEdit}
+              />
             )}
-
-            {visibleSessions.map((session) => {
-              const startMin = timeToMin(session.startTime);
-              const endMin = timeToMin(session.endTime);
-              const dayIdx = DAYS.indexOf(session.day);
-              if (dayIdx === -1 || !Number.isFinite(startMin) || !Number.isFinite(endMin)) return null;
-              const topPx = ((startMin - gridStartMin) / SLOT_MIN) * ROW_H;
-              const heightPx = ((endMin - startMin) / SLOT_MIN) * ROW_H;
-
-              return (
-                <div
-                  key={session.id}
-                  onClick={() => openEdit(session)}
-                  className="absolute cursor-pointer rounded-lg px-2 py-1 border overflow-hidden hover:opacity-90 transition-opacity"
-                  style={{
-                    top: topPx + 1,
-                    height: heightPx - 2,
-                    // Day columns occupy the width AFTER the 56px time gutter, so the
-                    // column math must be based on (100% - 56px), not the full width.
-                    left: `calc(56px + (100% - 56px) * ${dayIdx} / 5 + 4px)`,
-                    width: `calc((100% - 56px) / 5 - 8px)`,
-                    backgroundColor: session.color ?? "#F3F4F6",
-                    borderColor: "rgba(0,0,0,0.08)",
-                  }}
-                >
-                  <p className="text-xs font-semibold text-text truncate">{session.subject}</p>
-                  <div className="flex items-center gap-1 mt-0.5">
-                    <div className="w-4 h-4 rounded-full bg-primary-light flex items-center justify-center text-[9px] font-bold text-primary shrink-0">
-                      {session.teacherName.charAt(0)}
-                    </div>
-                    <p className="text-[11px] text-muted truncate">{session.teacherName}</p>
-                  </div>
-                </div>
-              );
-            })}
           </div>
-        </div>
+        ) : (
+          <TimeGrid
+            columns={DAYS.map((d, i) => ({ key: d, label: DAY_LABELS[d], sublabel: fmtDate(dayDate(weekStart, i)) }))}
+            sessionsFor={(day) => roomSessions.filter((s) => s.day === day)}
+            gridStartMin={gridStartMin}
+            gridRows={gridRows}
+            recessTime={recessTime}
+            conflictNotes={conflictNotes}
+            minColWidth={128}
+            onCellClick={(day, min) => openAdd(day as SessionDay, min, activeRoom)}
+            onSessionClick={openEdit}
+          />
+        )}
       </div>
 
       {/* Edit Class Slot Modal */}
@@ -510,6 +556,17 @@ export default function SchedulesPage() {
       >
         {editSession && (
           <div className="flex flex-col gap-5">
+            {saveError && (
+              <p className="text-sm text-error bg-error-bg border border-error-border rounded-lg px-3 py-2">{saveError}</p>
+            )}
+            {editRoomClash && (
+              <div className="flex items-start gap-2.5 rounded-lg border border-error-border bg-error-bg px-4 py-3">
+                <AlertCircle size={16} className="text-error mt-0.5 shrink-0" />
+                <p className="text-sm text-error">
+                  {editSession.classGroup} already has {editRoomClash.subject} at {editRoomClash.startTime}–{editRoomClash.endTime} on {DAY_LABELS[editSession.day]}. Pick a different time.
+                </p>
+              </div>
+            )}
             {hasConflict && (
               <div className="flex items-start gap-2.5 rounded-lg border border-error-border bg-error-bg px-4 py-3">
                 <AlertCircle size={16} className="text-error mt-0.5 shrink-0" />
@@ -576,7 +633,7 @@ export default function SchedulesPage() {
 
             <div className="flex justify-end gap-3 pt-2 border-t border-border">
               <Button variant="ghost" onClick={() => setEditSession(null)}>Cancel</Button>
-              <Button onClick={handleSaveEdit} loading={saving} disabled={hasConflict}>Save Changes</Button>
+              <Button onClick={handleSaveEdit} loading={saving} disabled={hasConflict || !!editRoomClash}>Save Changes</Button>
             </div>
           </div>
         )}
@@ -591,8 +648,14 @@ export default function SchedulesPage() {
       >
         {addDraft && (() => {
           const endAfterStart = timeToMin(addDraft.endTime) > timeToMin(addDraft.startTime);
+          const roomClash = sessions.find(
+            (s) =>
+              s.classGroup === addDraft.classGroup &&
+              s.day === addDraft.day &&
+              timeOverlap(s.startTime, s.endTime, addDraft.startTime, addDraft.endTime),
+          );
           const valid =
-            !!addDraft.classGroup && !!addDraft.subject && !!addDraft.teacherId && endAfterStart;
+            !!addDraft.classGroup && !!addDraft.subject && !!addDraft.teacherId && endAfterStart && !roomClash;
           return (
             <div className="flex flex-col gap-5">
               <div className="flex flex-col gap-1">
@@ -625,6 +688,14 @@ export default function SchedulesPage() {
               </div>
               {!endAfterStart && (
                 <p className="text-xs text-error -mt-3">End time must be after the start time.</p>
+              )}
+              {roomClash && (
+                <p className="text-xs text-error -mt-3">
+                  {addDraft.classGroup} already has {roomClash.subject} at {roomClash.startTime}–{roomClash.endTime} on {DAY_LABELS[addDraft.day]}.
+                </p>
+              )}
+              {addError && (
+                <p className="text-sm text-error bg-error-bg border border-error-border rounded-lg px-3 py-2">{addError}</p>
               )}
 
               <div className="flex flex-col gap-1">
@@ -753,6 +824,157 @@ function ResolveConflict({
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// Side-by-side placement for overlapping sessions in one column, so none is hidden
+// under another. Returns each session's lane and how many lanes its overlap group uses.
+function layoutLanes(sessions: ClassSession[]): Map<string, { lane: number; lanes: number }> {
+  const sorted = [...sessions].sort((a, b) => timeToMin(a.startTime) - timeToMin(b.startTime));
+  const result = new Map<string, { lane: number; lanes: number }>();
+  let group: { id: string; lane: number }[] = [];
+  let laneEnds: number[] = [];
+  let groupEnd = -Infinity;
+
+  const closeGroup = () => {
+    for (const g of group) result.set(g.id, { lane: g.lane, lanes: laneEnds.length });
+    group = [];
+    laneEnds = [];
+  };
+
+  for (const s of sorted) {
+    const start = timeToMin(s.startTime);
+    const end = timeToMin(s.endTime);
+    if (start >= groupEnd) closeGroup();
+    let lane = laneEnds.findIndex((e) => e <= start);
+    if (lane === -1) {
+      lane = laneEnds.length;
+      laneEnds.push(end);
+    } else {
+      laneEnds[lane] = end;
+    }
+    group.push({ id: s.id, lane });
+    groupEnd = Math.max(groupEnd, end);
+  }
+  closeGroup();
+  return result;
+}
+
+type GridColumn = { key: string; label: string; sublabel?: string };
+
+// Time grid: rows are 30-minute slots, columns are weekdays or classrooms.
+function TimeGrid({
+  columns,
+  sessionsFor,
+  gridStartMin,
+  gridRows,
+  recessTime,
+  conflictNotes,
+  minColWidth,
+  onCellClick,
+  onSessionClick,
+}: {
+  columns: GridColumn[];
+  sessionsFor: (columnKey: string) => ClassSession[];
+  gridStartMin: number;
+  gridRows: number[];
+  recessTime: string;
+  conflictNotes: Map<string, string>;
+  minColWidth: number;
+  onCellClick: (columnKey: string, startMin: number) => void;
+  onSessionClick: (session: ClassSession) => void;
+}) {
+  const n = columns.length;
+  const template = { gridTemplateColumns: `56px repeat(${n}, minmax(0, 1fr))` };
+  const colWidth = "(100% - 56px)";
+
+  return (
+    <div className="bg-surface rounded-xl border border-border overflow-hidden" style={{ minWidth: 56 + n * minColWidth }}>
+      <div className="grid border-b border-border" style={template}>
+        <div className="py-3" />
+        {columns.map((c) => (
+          <div key={c.key} className="py-2.5 px-1 text-center border-l border-border">
+            <p className="text-xs font-semibold text-text truncate">{c.label}</p>
+            {c.sublabel && <p className="text-[11px] text-muted truncate">{c.sublabel}</p>}
+          </div>
+        ))}
+      </div>
+
+      <div className="relative">
+        {gridRows.map((rowMin) => (
+          <div key={rowMin} className="grid border-b border-border/50" style={{ ...template, height: ROW_H }}>
+            <div className="pr-2 text-right text-xs text-muted self-start pt-1">
+              {rowMin % 60 === 0 ? minToLabel(rowMin) : ""}
+            </div>
+            {columns.map((c) => (
+              <div
+                key={c.key}
+                onClick={() => onCellClick(c.key, rowMin)}
+                title={`Add a class in ${c.label} at ${minToHHMM(rowMin)}`}
+                className="border-l border-border/50 relative cursor-pointer hover:bg-primary-light/40 transition-colors"
+              />
+            ))}
+          </div>
+        ))}
+
+        {/* Recess band — spans every column at the recess hour */}
+        {recessTime && Number.isFinite(timeToMin(recessTime)) && (
+          <div
+            className="absolute pointer-events-none flex items-center justify-center border-y border-dashed border-amber-300"
+            style={{
+              top: ((timeToMin(recessTime) - gridStartMin) / SLOT_MIN) * ROW_H,
+              height: ROW_H * 2,
+              left: 56,
+              right: 0,
+              backgroundColor: "rgba(245, 158, 11, 0.12)",
+            }}
+          >
+            <span className="text-[11px] font-semibold text-amber-600">☕ RECESS</span>
+          </div>
+        )}
+
+        {columns.flatMap((c, colIdx) => {
+          const colSessions = sessionsFor(c.key);
+          const lanes = layoutLanes(colSessions);
+          return colSessions.map((session) => {
+            const startMin = timeToMin(session.startTime);
+            const endMin = timeToMin(session.endTime);
+            if (!Number.isFinite(startMin) || !Number.isFinite(endMin)) return null;
+            const { lane, lanes: laneCount } = lanes.get(session.id) ?? { lane: 0, lanes: 1 };
+            const conflict = conflictNotes.get(session.id);
+            const inner = `(${colWidth} / ${n} - 8px)`;
+
+            return (
+              <div
+                key={session.id}
+                onClick={() => onSessionClick(session)}
+                title={conflict ?? `${session.subject} · ${session.classGroup} · ${session.teacherName}`}
+                className={`absolute cursor-pointer rounded-lg px-2 py-1 overflow-hidden hover:opacity-90 transition-opacity ${
+                  conflict ? "border-2 border-error" : "border"
+                }`}
+                style={{
+                  top: ((startMin - gridStartMin) / SLOT_MIN) * ROW_H + 1,
+                  height: ((endMin - startMin) / SLOT_MIN) * ROW_H - 2,
+                  // Columns sit after the 56px time gutter; overlapping sessions share
+                  // the column width in equal lanes.
+                  left: `calc(56px + ${colWidth} * ${colIdx} / ${n} + 4px + ${inner} * ${lane} / ${laneCount})`,
+                  width: `calc(${inner} / ${laneCount} - 2px)`,
+                  backgroundColor: session.color ?? "#F3F4F6",
+                  borderColor: conflict ? undefined : "rgba(0,0,0,0.08)",
+                }}
+              >
+                <p className="text-xs font-semibold text-text truncate flex items-center gap-1">
+                  {conflict && <AlertCircle size={11} className="text-error shrink-0" />}
+                  {session.subject}
+                </p>
+                <p className="text-[11px] text-muted truncate">{session.classGroup}</p>
+                <p className="text-[11px] text-muted truncate">{session.teacherName}</p>
+              </div>
+            );
+          });
+        })}
+      </div>
     </div>
   );
 }

@@ -14,6 +14,7 @@ export interface AdminUser {
   photoURL: string | null;
   role: "super_admin" | "admin" | "teacher";
   teacherId?: string; // set only for teacher accounts, links to /teachers/{id}
+  school?: string; // the school this account belongs to
 }
 
 export interface Teacher {
@@ -26,6 +27,7 @@ export interface Teacher {
   dateAdded: string; // ISO date string
   status: "active" | "pending" | "inactive";
   employeeId: string; // e.g. EB-2024-042
+  school?: string; // set from the admin who registered the teacher
   // Null until the teacher first signs into the mobile app with a matching
   // email; the mobile app links their Firebase Auth UID here. Login is gated
   // on a teacher record existing — see FIREBASE_SETUP.md.
@@ -69,6 +71,7 @@ export interface Droid {
   firmware: string; // e.g. v2.1.4
   battery: number; // 0–100
   lastPing: string; // relative string e.g. "2 mins ago"
+  lastPingAt?: string; // ISO time of the last heartbeat; absent until the droid first reports in
   status: "active" | "inactive" | "offline";
   telemetryNotes?: string;
 }
@@ -133,6 +136,13 @@ export interface StudentEngagement {
   focusScore: number;          // 0–100
   distractedCount: number;
   participationScore: number;  // 0–100
+  // Recorded by the droid; older reports may not have them.
+  avgEAR?: number;
+  avgMAR?: number;
+  poseDistribution?: Record<string, number>;        // forward / down / side / away, % of frames
+  expressionDistribution?: Record<string, number>;  // attentive / neutral / drowsy / yawning
+  postureDistribution?: Record<string, number>;     // hand_raised / leaning_in / neutral / head_down / slouched
+  timeline?: { t: number; score: number }[];        // seconds into the lesson, focus 0–100
 }
 
 export interface DroidObservation {
@@ -155,6 +165,7 @@ export interface SessionReport {
   studentEngagements: StudentEngagement[];
   droidObservations: DroidObservation[];
   status: "completed" | "in_progress";
+  noiseDistribution?: Record<string, number>;       // quiet / moderate / loud, % of the lesson
 }
 
 export interface MonthlyReportSummary {

@@ -78,7 +78,28 @@ html[data-theme="dark"] body {
 
 /* ── Print styles ─────────────────────────────────────────────────────────── */
 
+/* A4 pages for printed reports, with a running footer (Chrome/Edge 131+ draw page margin boxes). */
+@page {
+  size: A4;
+  margin: 14mm 14mm 16mm;
+  @bottom-left {
+    content: "EngageBot · Confidential: contains student information";
+    font-size: 8pt;
+    color: #5f6670;
+  }
+  @bottom-right {
+    content: "Page " counter(page) " of " counter(pages);
+    font-size: 8pt;
+    color: #5f6670;
+  }
+}
+
 @media print {
+  body,
+  main {
+    background: #fff !important;
+  }
+
   aside,
   header,
   .print-hide {

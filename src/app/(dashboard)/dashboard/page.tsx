@@ -9,7 +9,6 @@ import { DroidStatusPanel } from "@/components/dashboard/DroidStatusPanel";
 import { ScheduleTimeline } from "@/components/dashboard/ScheduleTimeline";
 import { LateAlertCarousel } from "@/components/dashboard/LateAlertCarousel";
 import { AlertBanner } from "@/components/ui/AlertBanner";
-import { Button } from "@/components/ui/Button";
 import { getSessions } from "@/lib/api/schedules";
 import { getDroids } from "@/lib/api/droids";
 import { getTeachers } from "@/lib/api/teachers";
@@ -17,6 +16,10 @@ import { getStudents } from "@/lib/api/students";
 import { dayOf } from "@/lib/schedule-utils";
 import type { ClassSession, Droid, Teacher, Student } from "@/lib/types";
 import { useAuth } from "@/context/AuthContext";
+
+// Same look as <Button variant="secondary" size="sm">, but a real link (no button inside a link).
+const LINK_BUTTON =
+  "inline-flex items-center justify-center gap-2 px-3 py-1.5 text-sm rounded-md bg-surface text-text border border-border hover:bg-subtle font-medium transition-colors";
 
 const QUICK_ACTIONS = [
   { label: "Register Teacher", href: "/register/teacher", icon: UserPlus },
@@ -42,11 +45,12 @@ export default function DashboardPage() {
     getSessions().then(setSessions);
   }, []);
 
-  const today = dayOf(new Date());
-  const todayFiltered = today ? sessions.filter((s) => s.day === today) : sessions;
-  // Fall back to all sessions if today's weekday has none, so the dashboard never looks empty.
-  const timelineSessions = todayFiltered.length ? todayFiltered : sessions;
-  const todaySessions = timelineSessions.slice(0, 6);
+  const now = new Date();
+  const todayLabel = now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const today = dayOf(now);
+  // Only today's sessions (none on weekends), in time order.
+  const todaySessions = (today ? sessions.filter((s) => s.day === today) : [])
+    .sort((a, b) => a.startTime.localeCompare(b.startTime));
   const activeDroids = droids.filter((d) => d.status === "active").length;
   const offlineDroids = droids.filter((d) => d.status === "offline").length;
 
@@ -75,14 +79,14 @@ export default function DashboardPage() {
       <div className="flex items-start justify-between mb-6">
         <div>
           <h2 className="text-2xl font-bold text-text">Welcome back, {firstName}.</h2>
-          <p className="text-sm text-muted mt-1">SMK Bandar Kinrara 4 • Thursday, 12 March 2026</p>
+          <p className="text-sm text-muted mt-1">{[user?.school, todayLabel].filter(Boolean).join(" • ")}</p>
         </div>
         <div className="flex gap-3">
-          <Button variant="secondary" size="sm">Export Report</Button>
-          <Button variant="secondary" size="sm">
+          <Link href="/reports" className={LINK_BUTTON}>View Reports</Link>
+          <Link href="/schedules" className={LINK_BUTTON}>
             <Calendar size={15} />
             Create Schedule
-          </Button>
+          </Link>
         </div>
       </div>
 
@@ -132,7 +136,7 @@ export default function DashboardPage() {
       {/* Main content */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
         <div className="lg:col-span-2">
-          <TeachingSessionsTable sessions={todaySessions} />
+          <TeachingSessionsTable sessions={todaySessions.slice(0, 6)} />
         </div>
         <div>
           <DroidStatusPanel droids={sidebarDroids} />
@@ -140,7 +144,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Schedule timeline */}
-      <ScheduleTimeline sessions={timelineSessions} />
+      <ScheduleTimeline sessions={todaySessions} />
     </div>
   );
 }
