@@ -15,7 +15,11 @@ export function TeachingSessionsTable({ sessions }: TeachingSessionsTableProps) 
           <h3 className="text-sm font-semibold text-text">Today&#39;s Teaching Sessions</h3>
           <p className="text-xs text-muted mt-0.5">Live update of ongoing and upcoming classes</p>
         </div>
-        <button className="flex items-center gap-1.5 text-xs text-muted hover:text-text border border-border rounded-lg px-3 py-1.5">
+        <button
+          disabled
+          title="Coming soon"
+          className="flex items-center gap-1.5 text-xs text-muted border border-border rounded-lg px-3 py-1.5 opacity-50 cursor-not-allowed"
+        >
           <Filter size={14} />
           Filter
         </button>
@@ -31,6 +35,13 @@ export function TeachingSessionsTable({ sessions }: TeachingSessionsTableProps) 
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
+          {sessions.length === 0 && (
+            <tr>
+              <td colSpan={4} className="px-5 py-8 text-center text-sm text-muted">
+                No sessions scheduled for today.
+              </td>
+            </tr>
+          )}
           {sessions.map((s) => (
             <tr key={s.id} className="hover:bg-subtle transition-colors">
               <td className="px-5 py-3">

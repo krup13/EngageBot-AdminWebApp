@@ -14,6 +14,7 @@ export interface AdminUser {
   photoURL: string | null;
   role: "super_admin" | "admin" | "teacher";
   teacherId?: string; // set only for teacher accounts, links to /teachers/{id}
+  school?: string; // the school this account belongs to
 }
 
 export interface Teacher {
@@ -26,6 +27,7 @@ export interface Teacher {
   dateAdded: string; // ISO date string
   status: "active" | "pending" | "inactive";
   employeeId: string; // e.g. EB-2024-042
+  school?: string; // set from the admin who registered the teacher
   // Null until the teacher first signs into the mobile app with a matching
   // email; the mobile app links their Firebase Auth UID here. Login is gated
   // on a teacher record existing — see FIREBASE_SETUP.md.

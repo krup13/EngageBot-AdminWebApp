@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { registerTeacher } from "@/lib/api/teachers";
 import { getSubjects } from "@/lib/api/subjects";
+import { useAuth } from "@/context/AuthContext";
 import type { Teacher, Subject } from "@/lib/types";
 
 const STEPS = [
@@ -18,6 +19,7 @@ const STEPS = [
 ];
 
 export default function RegisterTeacherPage() {
+  const { user } = useAuth();
   const [step, setStep] = useState(1);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -116,7 +118,7 @@ export default function RegisterTeacherPage() {
           <p className="text-sm text-muted mt-1">Add a new educator to the EngageBot system.</p>
         </div>
         <span className="text-xs font-medium text-primary bg-primary-light px-3 py-1.5 rounded-full">
-          Academic Year 2026
+          Academic Year {new Date().getFullYear()}
         </span>
       </div>
 
@@ -226,6 +228,10 @@ export default function RegisterTeacherPage() {
                 <span className="text-sm font-medium text-text">{email}</span>
               </div>
               <div className="flex justify-between border-t border-border pt-4">
+                <span className="text-sm text-muted">School</span>
+                <span className="text-sm font-medium text-text">{user?.school || "Not set"}</span>
+              </div>
+              <div className="flex justify-between border-t border-border pt-4">
                 <span className="text-sm text-muted">Temporary Password</span>
                 <span className="text-sm font-mono text-muted tracking-widest">{"•".repeat(Math.min(password.length, 12))}</span>
               </div>
@@ -237,7 +243,7 @@ export default function RegisterTeacherPage() {
               )}
               <div className="flex justify-between border-t border-border pt-4">
                 <span className="text-sm text-muted">Academic Year</span>
-                <span className="text-sm font-medium text-text">2026</span>
+                <span className="text-sm font-medium text-text">{new Date().getFullYear()}</span>
               </div>
             </div>
             <p className="text-xs text-muted">

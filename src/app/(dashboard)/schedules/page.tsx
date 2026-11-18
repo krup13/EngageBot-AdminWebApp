@@ -347,7 +347,7 @@ export default function SchedulesPage() {
             { label: "Import CSV", icon: Upload },
             { label: "Export CSV", icon: Download },
           ].map(({ label, icon: Icon }) => (
-            <button key={label} className="flex items-center gap-1.5 text-sm text-muted border border-border rounded-lg px-3 py-1.5 hover:text-text hover:bg-subtle transition-colors">
+            <button key={label} disabled title="Coming soon" className="flex items-center gap-1.5 text-sm text-muted border border-border rounded-lg px-3 py-1.5 opacity-50 cursor-not-allowed">
               <Icon size={14} />
               {label}
             </button>

@@ -13,6 +13,8 @@ export function Header({ title }: HeaderProps) {
   const { user } = useAuth();
   const { resolvedTheme, setTheme } = useTheme();
 
+  const roleLabel = user?.role === "super_admin" ? "Super Admin" : user?.role === "teacher" ? "Teacher" : "Admin";
+
   function handleThemeToggle() {
     setTheme(resolvedTheme === "dark" ? "light" : "dark");
   }
@@ -43,7 +45,9 @@ export function Header({ title }: HeaderProps) {
             <p className="text-sm font-medium text-text leading-tight">
               {user?.displayName ?? "Admin User"}
             </p>
-            <p className="text-xs text-muted leading-tight">Super Admin</p>
+            <p className="text-xs text-muted leading-tight">
+              {user?.school ? `${roleLabel} · ${user.school}` : roleLabel}
+            </p>
           </div>
           {user?.photoURL ? (
             <Image

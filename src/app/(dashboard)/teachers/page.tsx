@@ -212,6 +212,7 @@ export default function TeachersPage() {
                 <input type="checkbox" checked={selected.length === filtered.length && filtered.length > 0} onChange={toggleAll} className="rounded border-border accent-primary" />
               </th>
               <th className="text-left text-xs font-medium text-muted px-4 py-3">NAME &amp; ID</th>
+              <th className="text-left text-xs font-medium text-muted px-4 py-3">SCHOOL</th>
               <th className="text-left text-xs font-medium text-muted px-4 py-3">SUBJECTS</th>
               <th className="text-left text-xs font-medium text-muted px-4 py-3">ASSIGNED CLASSES</th>
               <th className="text-left text-xs font-medium text-muted px-4 py-3">DATE ADDED</th>
@@ -238,6 +239,7 @@ export default function TeachersPage() {
                     </div>
                   </div>
                 </td>
+                <td className="px-4 py-3 text-sm text-muted">{t.school || "—"}</td>
                 <td className="px-4 py-3">
                   <div className="flex flex-wrap gap-1.5">
                     {(t.subjects ?? []).length > 0
@@ -270,7 +272,7 @@ export default function TeachersPage() {
               </tr>
             ))}
             {filtered.length === 0 && (
-              <tr><td colSpan={6} className="px-4 py-10 text-center text-sm text-muted">No teachers match the current filters.</td></tr>
+              <tr><td colSpan={7} className="px-4 py-10 text-center text-sm text-muted">No teachers match the current filters.</td></tr>
             )}
           </tbody>
         </table>

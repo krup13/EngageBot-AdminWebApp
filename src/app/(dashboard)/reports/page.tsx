@@ -14,6 +14,7 @@ import { TabToggle } from "@/components/ui/TabToggle";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { getSessionReports, getMonthlyReport } from "@/lib/api/reports";
+import { getClassrooms } from "@/lib/api/classrooms";
 import type {
   SessionReport,
   MonthlyReportSummary,
@@ -33,14 +34,24 @@ function engagementVariant(
   return "neutral";
 }
 
-function sessionDurationMinutes(start: string, end: string): number {
+// Sessions still running have no endTime yet, so this returns null instead of crashing.
+function sessionDurationMinutes(start?: string, end?: string): number | null {
+  if (!start || !end) return null;
   const [sh, sm] = start.split(":").map(Number);
   const [eh, em] = end.split(":").map(Number);
-  return eh * 60 + em - (sh * 60 + sm);
+  const minutes = eh * 60 + em - (sh * 60 + sm);
+  return Number.isNaN(minutes) ? null : minutes;
 }
 
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
+function capitalize(s?: string): string {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : "—";
+}
+
+// Today's date in the browser's local time zone (toISOString would give the UTC date,
+// which is still yesterday in Malaysia before 8 a.m.).
+function todayLocal(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 const OBS_TYPE_VARIANT: Record<
@@ -52,15 +63,6 @@ const OBS_TYPE_VARIANT: Record<
   participation: "info",
   general: "neutral",
 };
-
-const CLASS_OPTIONS = [
-  { value: "all", label: "All Classes" },
-  { value: "4 Bestari", label: "4 Bestari" },
-  { value: "5 Amanah", label: "5 Amanah" },
-  { value: "3 Cerdas", label: "3 Cerdas" },
-  { value: "5C", label: "5C" },
-  { value: "4A", label: "4A" },
-];
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -128,10 +130,11 @@ function ObservationsList({ observations }: { observations: DroidObservation[] }
 
 export default function ReportsPage() {
   const [activeTab, setActiveTab] = useState<"daily" | "monthly">("daily");
-  const [selectedDate, setSelectedDate] = useState("2026-03-24");
-  const [selectedMonth, setSelectedMonth] = useState(3);
-  const [selectedYear, setSelectedYear] = useState(2026);
+  const [selectedDate, setSelectedDate] = useState(todayLocal);
+  const [selectedMonth, setSelectedMonth] = useState(() => new Date().getMonth() + 1);
+  const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear());
   const [classFilter, setClassFilter] = useState("all");
+  const [registeredClasses, setRegisteredClasses] = useState<string[]>([]);
   const [expandedSessions, setExpandedSessions] = useState<Set<string>>(new Set());
   const [expandedSection, setExpandedSection] = useState<Map<string, "students" | "droid">>(
     new Map()
@@ -146,6 +149,13 @@ export default function ReportsPage() {
     window.print();
     return () => window.removeEventListener("afterprint", cleanup);
   }, [printingSession]);
+
+  // ── Class filter options: registered classes from the database ────────────
+  useEffect(() => {
+    getClassrooms()
+      .then((groups) => setRegisteredClasses(groups.map((g) => g.name)))
+      .catch(() => setRegisteredClasses([]));
+  }, []);
 
   // ── Daily data ──────────────────────────────────────────────────────────────
   const [dailyAll, setDailyAll] = useState<SessionReport[]>([]);
@@ -174,6 +184,16 @@ export default function ReportsPage() {
       active = false;
     };
   }, [selectedMonth, selectedYear]);
+
+  // Registered classes, plus any class named in the loaded reports (e.g. one renamed or
+  // deleted since), so every report on screen can still be filtered.
+  const classOptions = [
+    ...new Set([
+      ...registeredClasses,
+      ...dailyAll.map((s) => s.classGroup),
+      ...(monthlyData?.sessionReports ?? []).map((s) => s.classGroup),
+    ].filter(Boolean)),
+  ].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
   const filteredMonthly = (monthlyData?.sessionReports ?? []).filter(
     (s) => classFilter === "all" || s.classGroup === classFilter
@@ -299,9 +319,10 @@ export default function ReportsPage() {
           onChange={(e) => setClassFilter(e.target.value)}
           className={selectClass}
         >
-          {CLASS_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
+          <option value="all">All Classes</option>
+          {classOptions.map((c) => (
+            <option key={c} value={c}>
+              {c}
             </option>
           ))}
         </select>
@@ -342,7 +363,7 @@ export default function ReportsPage() {
                         <StatusBadge status={session.status} />
                       </div>
                       <p className="text-xs text-muted">
-                        {session.classGroup} · {session.startTime}–{session.endTime} ·{" "}
+                        {session.classGroup} · {session.startTime}–{session.endTime || "in progress"} ·{" "}
                         {session.teacherName} · {session.droidId}
                       </p>
                       <p className="text-xs text-muted">
@@ -511,7 +532,7 @@ export default function ReportsPage() {
                           <td className="px-4 py-3 font-medium text-text">{session.subject}</td>
                           <td className="px-4 py-3 text-text">{session.classGroup}</td>
                           <td className="px-4 py-3 text-muted">{session.teacherName}</td>
-                          <td className="px-4 py-3 text-muted">{duration} min</td>
+                          <td className="px-4 py-3 text-muted">{duration === null ? "—" : `${duration} min`}</td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2">
                               <div className="w-16 bg-subtle rounded-full h-2 overflow-hidden">
