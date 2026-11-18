@@ -74,13 +74,15 @@ export default function ClassroomsPage() {
       name: editName.trim(),
       academicYear: Number(editYear) || editRoom.academicYear,
       room: editLocation.trim(),
-      droidId: editDroidId || undefined,
+      droidId: editDroidId, // "" removes the droid from this classroom
     };
     setSaving(true);
     setEditError(null);
     try {
       await updateClassroom(editRoom.id, patch);
       setClassrooms((prev) => prev.map((c) => (c.id === editRoom.id ? { ...c, ...patch } : c)));
+      // A droid moved here is unassigned from its previous classroom on the server.
+      if (patch.droidId !== (editRoom.droidId ?? "")) getClassrooms().then(setClassrooms);
       setEditRoom(null);
     } catch (e) {
       setEditError(e instanceof Error ? e.message : "Failed to save changes.");

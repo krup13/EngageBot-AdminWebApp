@@ -71,6 +71,7 @@ export interface Droid {
   firmware: string; // e.g. v2.1.4
   battery: number; // 0–100
   lastPing: string; // relative string e.g. "2 mins ago"
+  lastPingAt?: string; // ISO time of the last heartbeat; absent until the droid first reports in
   status: "active" | "inactive" | "offline";
   telemetryNotes?: string;
 }
